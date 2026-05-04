@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>WILDS Architecture</title>
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+  <style>
+    body {
+      background: #f5f7fa;
+      color: #1a1a2e;
+      font-family: sans-serif;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 2rem;
+      margin: 0;
+    }
+    h1 {
+      color: #1a56db;
+      letter-spacing: 0.05em;
+      margin-bottom: 2rem;
+    }
+    .mermaid {
+      background: #ffffff;
+      border-radius: 12px;
+      padding: 2rem;
+      box-shadow: 0 4px 32px rgba(0,0,0,0.1);
+      max-width: 1200px;
+      width: 100%;
+      overflow: visible;
+    }
+    .mermaid svg {
+      width: 100% !important;
+      height: auto !important;
+      overflow: visible !important;
+    }
+  </style>
+</head>
+<body>
+  <h1>WILDS System Architecture</h1>
+  <div class="mermaid">
+graph TB
+    TO(["Browser (TO)"])
+
+    subgraph gui["wilds-gui  :8000"]
+        Django["Django\nserves index.html"]
+    end
+
+    subgraph ctrl["wilds-control  :8001"]
+        FastAPI["FastAPI / Hypercorn"]
+        Acquire["acquire task\nstate machine"]
+        ADCTrack["ADC auto-tracker"]
+        VideoEnc["video encoder\nraw → JPEG"]
+    end
+
+    subgraph libs["Python libraries"]
+        Bridge["wilds-bridge\nLDTBroker · Telescope · Focuser"]
+        Solving["wilds-solving\nPlateSolver · extract_sources"]
+        Camera["wilds-guiding-camera"]
+        WildsApi["WildsApi client\nhttpx HTTP/2"]
+    end
+
+    subgraph ldt["LDT infrastructure"]
+        AMQ["ActiveMQ\ntanagra:61613"]
+        TCS["TCS"]
+        AOS["AOS / focus"]
+        WRS["WRS / weather"]
+        ICube["Instrument cube"]
+    end
+
+    TO -- "GET /" --> Django
+    TO -- "WS /ws/video\nbinary JPEG frames" --> FastAPI
+    TO -- "SSE /sse/telemetry\npar_angle · in_position · HA…" --> FastAPI
+    TO -- "POST /acquire\n/slit /adc /focus /solve" --> FastAPI
+
+    FastAPI --> Acquire
+    FastAPI --> ADCTrack
+    FastAPI --> VideoEnc
+
+    Acquire --> Bridge
+    Acquire --> Solving
+    Acquire --> Camera
+    ADCTrack --> Bridge
+    VideoEnc --> Camera
+
+    Bridge -- "STOMP subscribe/publish" --> AMQ
+    AMQ <--> TCS
+    AMQ <--> AOS
+    AMQ <--> WRS
+    AMQ <--> ICube
+
+    WildsApi -. "httpx HTTP/2\nscripting / curl equiv" .-> FastAPI
+  </div>
+
+  <script>
+    mermaid.initialize({ startOnLoad: true, theme: 'default' });
+  </script>
+</body>
+</html>
