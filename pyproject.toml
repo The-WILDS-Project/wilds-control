@@ -16,7 +16,6 @@ dependencies = [
     "pillow>=10.0",
     "wilds-bridge",
     "wilds-solving",
-    "wilds-guiding-camera",
 ]
 
 [dependency-groups]
@@ -54,3 +53,7 @@ ignore = [
 
 [tool.ruff.lint.isort]
 known-first-party = ["wilds"]
+
+[tool.uv.sources]
+wilds-bridge = { path = "../wilds-bridge", editable = true }
+wilds-solving = { path = "../wilds-solving", editable = true }

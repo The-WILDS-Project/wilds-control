@@ -1,44 +1,6 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <title>WILDS Architecture</title>
-  <script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
-  <style>
-    body {
-      background: #f5f7fa;
-      color: #1a1a2e;
-      font-family: sans-serif;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      padding: 2rem;
-      margin: 0;
-    }
-    h1 {
-      color: #1a56db;
-      letter-spacing: 0.05em;
-      margin-bottom: 2rem;
-    }
-    .mermaid {
-      background: #ffffff;
-      border-radius: 12px;
-      padding: 2rem;
-      box-shadow: 0 4px 32px rgba(0,0,0,0.1);
-      max-width: 1200px;
-      width: 100%;
-      overflow: visible;
-    }
-    .mermaid svg {
-      width: 100% !important;
-      height: auto !important;
-      overflow: visible !important;
-    }
-  </style>
-</head>
-<body>
-  <h1>WILDS System Architecture</h1>
-  <div class="mermaid">
+# WILDS System Architecture
+
+```mermaid
 graph TB
     TO(["Browser (TO)"])
 
@@ -90,10 +52,4 @@ graph TB
     AMQ <--> ICube
 
     WildsApi -. "httpx HTTP/2\nscripting / curl equiv" .-> FastAPI
-  </div>
-
-  <script>
-    mermaid.initialize({ startOnLoad: true, theme: 'default' });
-  </script>
-</body>
-</html>
+```

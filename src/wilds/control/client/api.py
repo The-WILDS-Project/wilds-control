@@ -1,4 +1,8 @@
+from typing import Self
+
 import httpx
+
+from wilds.bridge.models.types import AdcIndex, SlitMoveMode
 
 
 class WildsApi:
@@ -7,14 +11,14 @@ class WildsApi:
     Usage::
 
         async with WildsApi("http://localhost:8001") as api:
-            await api.acquire(name="M31", ra_hours=0.6625, dec_deg=41.27)
+            await api.acquire_science_target(name="M31", ra_hours=0.6625, dec_deg=41.27)
     """
 
     def __init__(self, base_url: str) -> None:
         self._base_url = base_url.rstrip("/")
         self._client: httpx.AsyncClient | None = None
 
-    async def __aenter__(self) -> "WildsApi":
+    async def __aenter__(self) -> Self:
         self._client = httpx.AsyncClient(base_url=self._base_url, http2=True)
         return self
 
@@ -37,14 +41,14 @@ class WildsApi:
     # Slit
     # ------------------------------------------------------------------
 
-    async def slit_move(self, *, mode: str, value_mm: float) -> None:
+    async def slit_move(self, *, mode: SlitMoveMode, value_mm: float) -> None:
         await self._post("/slit/move", {"mode": mode, "value_mm": value_mm})
 
     # ------------------------------------------------------------------
     # ADC
     # ------------------------------------------------------------------
 
-    async def adc_move(self, n: int, *, angle_deg: float) -> None:
+    async def adc_move(self, n: AdcIndex, *, angle_deg: float) -> None:
         await self._post(f"/adc/{n}/move", {"angle_deg": angle_deg})
 
     async def adc_track(self, *, enable: bool) -> None:
@@ -64,7 +68,7 @@ class WildsApi:
     # Acquire
     # ------------------------------------------------------------------
 
-    async def acquire(
+    async def acquire_science_target(
         self,
         *,
         name: str,
@@ -72,7 +76,7 @@ class WildsApi:
         dec_deg: float,
         tolerance_arcsec: float = 5.0,
     ) -> None:
-        await self._post("/acquire", {
+        await self._post("/acquire-science-target", {
             "name": name,
             "ra_hours": ra_hours,
             "dec_deg": dec_deg,
