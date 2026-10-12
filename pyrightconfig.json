@@ -1,5 +1,5 @@
 {
-  "venvPath": ".",
+  "venvPath": "..",
   "venv": ".venv",
   "extraPaths": ["../wilds-bridge/src", "../wilds-solving/src", "src"]
 }
