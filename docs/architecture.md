@@ -18,7 +18,7 @@ graph TB
     subgraph libs["Python libraries"]
         Bridge["wilds-bridge\nLDTBroker · Telescope · Focuser"]
         Solving["wilds-solving\nPlateSolver · extract_sources"]
-        Camera["wilds-guiding-camera"]
+        Camera["wilds-guiding-camera\nZWO ASI294-class\nviews sky around slit"]
         WildsApi["WildsApi client\nhttpx HTTP/2"]
     end
 
@@ -33,7 +33,7 @@ graph TB
     TO -- "GET /" --> Django
     TO -- "WS /ws/video\nbinary JPEG frames" --> FastAPI
     TO -- "SSE /sse/telemetry\npar_angle · in_position · HA…" --> FastAPI
-    TO -- "POST /acquire\n/slit /adc /focus /solve" --> FastAPI
+    TO -- "POST /acquire\n/slit /lamps /adc /focus /solve" --> FastAPI
 
     FastAPI --> Acquire
     FastAPI --> ADCTrack

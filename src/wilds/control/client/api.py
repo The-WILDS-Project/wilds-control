@@ -2,7 +2,7 @@ from typing import Self
 
 import httpx
 
-from wilds.bridge.models.types import AdcIndex, SlitMoveMode
+from wilds.bridge.models.types import AdcIndex, LampIndex, LampMoveTarget, SlitMoveMode
 
 
 class WildsApi:
@@ -41,8 +41,19 @@ class WildsApi:
     # Slit
     # ------------------------------------------------------------------
 
-    async def slit_move(self, *, mode: SlitMoveMode, value_mm: float) -> None:
-        await self._post("/slit/move", {"mode": mode, "value_mm": value_mm})
+    async def slit_move(self, *, mode: SlitMoveMode, width_mm: float) -> None:
+        """Set the slit width ("abs") or change it by width_mm ("jog")."""
+        await self._post("/slit/move", {"mode": mode, "width_mm": width_mm})
+
+    # ------------------------------------------------------------------
+    # Calibration lamps
+    # ------------------------------------------------------------------
+
+    async def lamp_power(self, n: LampIndex, *, on: bool) -> None:
+        await self._post(f"/lamps/{n}/power", {"on": on})
+
+    async def lamp_move(self, n: LampIndex, *, position: LampMoveTarget) -> None:
+        await self._post(f"/lamps/{n}/move", {"position": position})
 
     # ------------------------------------------------------------------
     # ADC
