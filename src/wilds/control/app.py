@@ -3,7 +3,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from .routers import acquire_science_target, adc, camera, focus, lamps, slit, status
+from .routers import acquire_science_target, adc, camera, control, focus, lamps, slit, status
 
 
 @asynccontextmanager
@@ -25,6 +25,7 @@ def create_app() -> FastAPI:
 
     app.include_router(camera.router)
     app.include_router(status.router)
+    app.include_router(control.router)
     app.include_router(acquire_science_target.router)
     app.include_router(slit.router)
     app.include_router(lamps.router)
