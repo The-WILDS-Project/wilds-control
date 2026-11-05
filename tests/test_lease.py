@@ -117,10 +117,8 @@ def test_engineering_needs_the_passphrase_and_marks_status(client):
     assert r.status_code == 403
     r = client.post("/control/engineering", json={"passphrase": "eng-pass"}, headers=sid(s))
     assert r.status_code == 200
-    assert client.get("/status").json()["control"] == {
-        "holder": "Arie (Rehovot)",
-        "engineering": True,
-    }
+    ctl = client.get("/status").json()["control"]
+    assert ctl["holder"] == "Arie (Rehovot)" and ctl["engineering"] is True
 
 
 def test_dead_holder_lapses_the_lease(client, clock):

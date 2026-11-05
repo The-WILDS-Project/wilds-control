@@ -4,9 +4,10 @@ import os
 import secrets
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Header, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from pydantic import BaseModel
 
+from .. import provenance
 from ..lease import LeaseError, Session, state
 
 router = APIRouter(tags=["control"])
@@ -53,17 +54,20 @@ ToOnly = Depends(require_to)
 
 class NewSession(BaseModel):
     name: str
+    hints: provenance.Hints = provenance.Hints()
 
 
 class SessionCreated(BaseModel):
     session_id: str
     code: str
+    provenance: str  # plain-text tooltip lines
 
 
 class Heartbeat(BaseModel):
     holder: bool
     engineering: bool
     requested: bool
+    provenance: str
     lease_token: str | None = None  # only the holder is given it
 
 
@@ -79,6 +83,8 @@ class SessionInfo(BaseModel):
     code: str
     name: str
     requested: bool
+    provenance: str  # plain-text tooltip lines
+    details: provenance.Provenance | None = None
 
 
 class SessionsView(BaseModel):
@@ -89,32 +95,50 @@ class SessionsView(BaseModel):
 
 
 def _info(s: Session) -> SessionInfo:
-    return SessionInfo(code=s.code, name=s.name, requested=s.requested_at is not None)
+    return SessionInfo(
+        code=s.code,
+        name=s.name,
+        requested=s.requested_at is not None,
+        provenance=s.prov.summary() if s.prov else "",
+        details=s.prov,
+    )
 
 
 # -- sessions ---------------------------------------------------------------------------
 
 
 @router.post("/sessions", response_model=SessionCreated)
-def create_session(body: NewSession) -> SessionCreated:
+def create_session(body: NewSession, request: Request) -> SessionCreated:
+    client = request.client
+    server = request.scope.get("server")
+    prov = provenance.collect(
+        ip=client.host if client else "unknown",
+        port=client.port if client else None,
+        server_port=server[1] if server else None,
+        user_agent=request.headers.get("user-agent"),
+        hints=body.hints,
+    )
     try:
-        s = state.create_session(body.name)
+        s = state.create_session(body.name, prov)
     except LeaseError as e:
         raise _http(e) from e
-    return SessionCreated(session_id=s.id, code=s.code)
+    return SessionCreated(session_id=s.id, code=s.code, provenance=prov.summary())
 
 
 @router.post("/sessions/{session_id}/heartbeat", response_model=Heartbeat)
-def heartbeat(session_id: str) -> Heartbeat:
+def heartbeat(session_id: str, request: Request) -> Heartbeat:
     try:
         s = state.get(session_id)
     except LeaseError as e:
         raise _http(e) from e
+    if s.prov and request.client:
+        provenance.moved(s.prov, request.client.host)
     holder = state.holder_id == s.id
     return Heartbeat(
         holder=holder,
         engineering=holder and state.engineering,
         requested=s.requested_at is not None,
+        provenance=s.prov.summary() if s.prov else "",
         lease_token=state.token if holder else None,
     )
 
