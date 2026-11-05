@@ -12,6 +12,8 @@ from fastapi import APIRouter
 from pydantic import BaseModel, Field
 from sse_starlette.sse import EventSourceResponse
 
+from ..lease import state as lease
+
 router = APIRouter(prefix="/status", tags=["status"])
 
 STATUS_PERIOD_S = 1.0
@@ -43,8 +45,12 @@ class Status(BaseModel):
 
 
 def current_status() -> Status:
-    # TODO: assemble from the broker, devices, jobs and the control lease
-    return Status()
+    # TODO: add the broker, devices and jobs
+    lease.expire()
+    holder = lease.holder
+    return Status(
+        control=ControlLease(holder=holder.name if holder else None, engineering=lease.engineering)
+    )
 
 
 @router.get("", response_model=Status)
