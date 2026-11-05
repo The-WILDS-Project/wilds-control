@@ -88,3 +88,10 @@ def test_address_change_keeps_the_first_one(client):
     provenance.moved(s.prov, "10.9.9.9")
     assert s.prov.ip == "10.9.9.9" and s.prov.first_ip == "testclient"
     assert "First seen from: testclient" in s.prov.summary()
+
+
+def test_heartbeat_returns_name_and_code_so_any_tab_can_show_them(client):
+    made = client.post("/sessions", json={"name": "Arie"}).json()
+    hb = client.post(f"/sessions/{made['session_id']}/heartbeat").json()
+    assert hb["name"] == "Arie" and hb["code"] == made["code"]
+    assert hb["provenance"] == made["provenance"]

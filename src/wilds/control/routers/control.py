@@ -64,6 +64,8 @@ class SessionCreated(BaseModel):
 
 
 class Heartbeat(BaseModel):
+    name: str
+    code: str
     holder: bool
     engineering: bool
     requested: bool
@@ -135,6 +137,8 @@ def heartbeat(session_id: str, request: Request) -> Heartbeat:
         provenance.moved(s.prov, request.client.host)
     holder = state.holder_id == s.id
     return Heartbeat(
+        name=s.name,
+        code=s.code,
         holder=holder,
         engineering=holder and state.engineering,
         requested=s.requested_at is not None,
