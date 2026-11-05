@@ -87,15 +87,12 @@ class WildsApi:
         dec_deg: float,
         tolerance_arcsec: float = 5.0,
     ) -> None:
-        await self._post(
-            "/acquire-science-target",
-            {
-                "name": name,
-                "ra_hours": ra_hours,
-                "dec_deg": dec_deg,
-                "tolerance_arcsec": tolerance_arcsec,
-            },
-        )
+        await self._post("/acquire-science-target", {
+            "name": name,
+            "ra_hours": ra_hours,
+            "dec_deg": dec_deg,
+            "tolerance_arcsec": tolerance_arcsec,
+        })
 
     async def acquire_cancel(self) -> None:
         await self._post("/acquire/cancel")
