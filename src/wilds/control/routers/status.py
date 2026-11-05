@@ -21,6 +21,8 @@ STATUS_PERIOD_S = 1.0
 
 class ControlLease(BaseModel):
     holder: str | None = None
+    holder_code: str | None = None
+    holder_info: str | None = None  # where the holder comes from, plain text
     engineering: bool = False
 
 
@@ -49,7 +51,12 @@ def current_status() -> Status:
     lease.expire()
     holder = lease.holder
     return Status(
-        control=ControlLease(holder=holder.name if holder else None, engineering=lease.engineering)
+        control=ControlLease(
+            holder=holder.name if holder else None,
+            holder_code=holder.code if holder else None,
+            holder_info=holder.prov.summary() if holder and holder.prov else None,
+            engineering=lease.engineering,
+        )
     )
 
 

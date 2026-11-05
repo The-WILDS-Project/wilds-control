@@ -17,6 +17,8 @@ import uuid
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
+from .provenance import Provenance
+
 audit = logging.getLogger("wilds.control.audit")
 
 # Defaults for the open decisions in plan §6; each can be overridden from the environment
@@ -42,6 +44,7 @@ class Session:
     name: str
     last_seen: float
     requested_at: float | None = None
+    prov: Provenance | None = None
 
 
 @dataclass
@@ -59,7 +62,8 @@ class ControlState:
         return self.sessions.get(self.holder_id) if self.holder_id else None
 
     def _label(self, s: Session) -> str:
-        return f"{s.name} [{s.code}]"
+        where = f" from {s.prov.origin or s.prov.ip}" if s.prov else ""
+        return f"{s.name} [{s.code}]{where}"
 
     def _new_code(self) -> str:
         used = {s.code for s in self.sessions.values()}
@@ -111,16 +115,22 @@ class ControlState:
 
     # -- sessions -----------------------------------------------------------------------
 
-    def create_session(self, name: str) -> Session:
+    def create_session(self, name: str, prov: Provenance | None = None) -> Session:
         self.expire()
         name = " ".join(name.split())[:NAME_MAX]
         if not name:
             raise LeaseError(422, "A name is required")
         if len(self.sessions) >= MAX_SESSIONS:
             raise LeaseError(503, f"WILDS is at its limit of {MAX_SESSIONS} sessions; try later")
-        s = Session(id=str(uuid.uuid4()), code=self._new_code(), name=name, last_seen=self.clock())
+        s = Session(
+            id=str(uuid.uuid4()),
+            code=self._new_code(),
+            name=name,
+            last_seen=self.clock(),
+            prov=prov,
+        )
         self.sessions[s.id] = s
-        audit.info("session created: %s", self._label(s))
+        audit.info("session created: %s from %s", self._label(s), prov.ip if prov else "?")
         return s
 
     # -- requesting, granting, releasing -----------------------------------------------
