@@ -5,11 +5,11 @@ build-backend = "hatchling.build"
 [project]
 name = "wilds-control"
 version = "0.1.0"
-description = "WILDS instrument control — FastAPI/Hypercorn backend for the WILDS spectrograph"
+description = "WILDS instrument control — FastAPI/Uvicorn backend for the WILDS spectrograph"
 requires-python = ">=3.10"
 dependencies = [
     "fastapi>=0.110",
-    "hypercorn>=0.17",
+    "uvicorn[standard]>=0.30",
     "httpx[http2]>=0.27",
     "sse-starlette>=2.0",
     "numpy>=2.0",
