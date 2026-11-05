@@ -9,7 +9,7 @@ graph TB
     end
 
     subgraph ctrl["wilds-control  :8001"]
-        FastAPI["FastAPI / Hypercorn"]
+        FastAPI["FastAPI / Uvicorn"]
         Acquire["acquire task\nstate machine"]
         ADCTrack["ADC auto-tracker"]
         VideoEnc["video encoder\nraw → JPEG"]

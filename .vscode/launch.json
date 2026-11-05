@@ -1,0 +1,15 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "wilds-control (Uvicorn :8001)",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "uvicorn",
+      "args": ["--factory", "wilds.control.app:create_app", "--host", "localhost", "--port", "8001", "--reload"],
+      "python": "${workspaceFolder}/../.venv/bin/python",
+      "cwd": "${workspaceFolder}",
+      "justMyCode": true
+    }
+  ]
+}
