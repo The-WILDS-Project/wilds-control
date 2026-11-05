@@ -9,6 +9,10 @@
       "args": ["--factory", "wilds.control.app:create_app", "--host", "localhost", "--port", "8001", "--reload"],
       "python": "${workspaceFolder}/../.venv/bin/python",
       "cwd": "${workspaceFolder}",
+      "env": {
+        "WILDS_TO_PASSPHRASE": "dev",
+        "WILDS_ENGINEERING_PASSPHRASE": "dev-engineering"
+      },
       "justMyCode": true
     }
   ]
