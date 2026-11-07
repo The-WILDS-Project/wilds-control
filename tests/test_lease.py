@@ -14,14 +14,13 @@ class Clock:
 
 
 @pytest.fixture
-def clock(monkeypatch):
+def clock(monkeypatch, config_file):
     c = Clock()
     lease.state.sessions.clear()
     lease.state.holder_id = lease.state.token = None
     lease.state.engineering = False
     monkeypatch.setattr(lease.state, "clock", c)
-    monkeypatch.setenv("WILDS_TO_PASSPHRASE", "to-pass")
-    monkeypatch.setenv("WILDS_ENGINEERING_PASSPHRASE", "eng-pass")
+    config_file('[passphrases]\nto = "to-pass"\nengineering = "eng-pass"\n')
     return c
 
 
@@ -86,8 +85,8 @@ def test_to_endpoints_need_the_passphrase(client):
     assert client.post("/control/revoke", headers={"X-TO-Passphrase": "nope"}).status_code == 403
 
 
-def test_to_endpoints_are_closed_when_no_passphrase_is_configured(client, monkeypatch):
-    monkeypatch.delenv("WILDS_TO_PASSPHRASE")
+def test_to_endpoints_are_closed_when_no_passphrase_is_configured(client, config_file):
+    config_file('[passphrases]\nengineering = "eng-pass"\n')
     assert client.get("/control/sessions", headers={"X-TO-Passphrase": ""}).status_code == 403
 
 
@@ -146,3 +145,28 @@ def test_refuse_clears_the_request(client):
 def test_unknown_session_header_is_404(client):
     assert client.post("/control/requests", headers={"X-Session-Id": "nope"}).status_code == 404
     assert client.post("/control/requests").status_code == 404
+
+
+def test_a_refusal_is_reported_to_the_session_until_it_asks_again(client):
+    s = new_session(client)
+    beat = lambda: client.post(f"/sessions/{s['session_id']}/heartbeat").json()  # noqa: E731
+    assert beat()["refused"] is False
+
+    client.post("/control/requests", headers=sid(s))
+    assert beat()["requested"] is True and beat()["refused"] is False
+
+    client.post(f"/control/requests/{s['code']}/refuse", json={"reason": "busy"}, headers=TO)
+    hb = beat()
+    assert hb["refused"] is True and hb["refusal_reason"] == "busy" and hb["requested"] is False
+
+    client.post("/control/requests", headers=sid(s))  # asking again clears it
+    hb = beat()
+    assert hb["refused"] is False and hb["refusal_reason"] is None and hb["requested"] is True
+
+
+def test_a_grant_clears_an_earlier_refusal(client):
+    s = new_session(client)
+    client.post(f"/control/requests/{s['code']}/refuse", json={"reason": "no"}, headers=TO)
+    client.post(f"/control/requests/{s['code']}/grant", headers=TO)
+    hb = client.post(f"/sessions/{s['session_id']}/heartbeat").json()
+    assert hb["holder"] is True and hb["refused"] is False

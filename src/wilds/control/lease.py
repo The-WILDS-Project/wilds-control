@@ -17,6 +17,7 @@ import uuid
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
+from . import config
 from .provenance import Provenance
 
 audit = logging.getLogger("wilds.control.audit")
@@ -44,6 +45,8 @@ class Session:
     name: str
     last_seen: float
     requested_at: float | None = None
+    refused: bool = False  # the TO refused this session's last request (until it asks again)
+    refusal_reason: str | None = None
     prov: Provenance | None = None
 
 
@@ -53,6 +56,8 @@ class ControlState:
     holder_id: str | None = None
     engineering: bool = False
     token: str | None = None
+    to_seen: float | None = None  # last valid request from a Telescope Operator page
+    to_logged_online: bool = False
     clock: Callable[[], float] = time.monotonic
 
     # -- helpers ------------------------------------------------------------------------
@@ -87,9 +92,26 @@ class ControlState:
         self.engineering = engineering
         self.token = secrets.token_urlsafe(24)
         s.requested_at = None
+        s.refused, s.refusal_reason = False, None
+
+    @property
+    def to_online(self) -> bool:
+        """A Telescope Operator page is open and unlocked (it polls with the passphrase)."""
+        return self.to_seen is not None and (
+            self.clock() - self.to_seen <= config.get().presence.to_timeout_s
+        )
+
+    def touch_to(self) -> None:
+        self.to_seen = self.clock()
+        if not self.to_logged_online:
+            self.to_logged_online = True
+            audit.info("Telescope Operator online")
 
     def expire(self) -> None:
         """Drop sessions that missed their heartbeats; lapse the lease if the holder went."""
+        if self.to_logged_online and not self.to_online:
+            self.to_logged_online = False
+            audit.info("Telescope Operator offline (no contact)")
         now = self.clock()
         for s in [s for s in self.sessions.values() if now - s.last_seen > SESSION_TIMEOUT_S]:
             del self.sessions[s.id]
@@ -137,6 +159,7 @@ class ControlState:
 
     def request(self, s: Session) -> None:
         s.requested_at = self.clock()  # re-applying moves the request to the top
+        s.refused, s.refusal_reason = False, None
         audit.info("control requested by %s", self._label(s))
 
     def grant(self, code: str) -> Session:
@@ -151,6 +174,7 @@ class ControlState:
     def refuse(self, code: str, reason: str) -> None:
         s = self.by_code(code)
         s.requested_at = None
+        s.refused, s.refusal_reason = True, (reason or None)
         audit.info("control refused for %s: %s", self._label(s), reason or "no reason given")
 
     def revoke(self) -> None:

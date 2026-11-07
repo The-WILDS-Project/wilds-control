@@ -6,12 +6,14 @@ control lease exist.
 """
 
 import asyncio
+import time
 from collections.abc import AsyncIterator
 
 from fastapi import APIRouter
 from pydantic import BaseModel, Field
 from sse_starlette.sse import EventSourceResponse
 
+from .. import config
 from ..lease import state as lease
 
 router = APIRouter(prefix="/status", tags=["status"])
@@ -35,6 +37,17 @@ class TcsStatus(BaseModel):
     stale: bool = True
 
 
+class ToStatus(BaseModel):
+    online: bool = False
+
+
+class ServerTime(BaseModel):
+    """The server's clock, so every page shows the same time whatever its own clock says."""
+
+    utc_ms: int  # milliseconds since the Unix epoch, UTC
+    zone: str  # IANA zone for LDT local time (config.toml [site] timezone)
+
+
 class Action(BaseModel):
     ok: bool
     why: str | None = None
@@ -43,6 +56,9 @@ class Action(BaseModel):
 class Status(BaseModel):
     control: ControlLease = Field(default_factory=ControlLease)
     tcs: TcsStatus = Field(default_factory=TcsStatus)
+    time: ServerTime
+    to: ToStatus = Field(default_factory=ToStatus)
+    warnings: list[str] = Field(default_factory=list)
     actions: dict[str, Action] = Field(default_factory=dict)
 
 
@@ -56,7 +72,10 @@ def current_status() -> Status:
             holder_code=holder.code if holder else None,
             holder_info=holder.prov.summary() if holder and holder.prov else None,
             engineering=lease.engineering,
-        )
+        ),
+        time=ServerTime(utc_ms=time.time_ns() // 1_000_000, zone=config.get().site.timezone),
+        to=ToStatus(online=lease.to_online),
+        warnings=config.get().warnings(),
     )
 
 

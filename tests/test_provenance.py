@@ -34,7 +34,8 @@ def test_browser_strings_are_cleaned_and_bounded():
     assert provenance.clean("") is None
 
 
-def test_session_carries_provenance_and_it_reaches_the_tooltip_fields(client):
+def test_session_carries_provenance_and_it_reaches_the_tooltip_fields(client, config_file):
+    config_file('[passphrases]\nto = "p"\n')
     hints = {"timezone": "Asia/Jerusalem", "page_host": "wilds.lowell.edu"}
     r = client.post(
         "/sessions",
@@ -43,24 +44,18 @@ def test_session_carries_provenance_and_it_reaches_the_tooltip_fields(client):
     )
     body = r.json()
     assert "Address: testclient" in body["provenance"]
-    assert "Browser: TestBrowser/1.0" in body["provenance"]
+    assert "Browser" not in body["provenance"]  # kept in the details, not in the tooltip
     assert "Time zone: Asia/Jerusalem" in body["provenance"]
     assert "Opened as: wilds.lowell.edu" in body["provenance"]
 
     to = {"X-TO-Passphrase": "p"}
-    import os
-
-    os.environ["WILDS_TO_PASSPHRASE"] = "p"
-    try:
-        sess = client.get("/control/sessions", headers=to).json()
-        info = sess["viewers"][0]
-        assert info["provenance"] == body["provenance"]
-        assert info["details"]["hints"]["timezone"] == "Asia/Jerusalem"
-        client.post(f"/control/requests/{body['code']}/grant", headers=to)
-        ctl = client.get("/status").json()["control"]
-        assert ctl["holder_code"] == body["code"] and "Address:" in ctl["holder_info"]
-    finally:
-        del os.environ["WILDS_TO_PASSPHRASE"]
+    sess = client.get("/control/sessions", headers=to).json()
+    info = sess["viewers"][0]
+    assert info["provenance"] == body["provenance"]
+    assert info["details"]["hints"]["timezone"] == "Asia/Jerusalem"
+    client.post(f"/control/requests/{body['code']}/grant", headers=to)
+    ctl = client.get("/status").json()["control"]
+    assert ctl["holder_code"] == body["code"] and "Address:" in ctl["holder_info"]
 
 
 def test_summary_lines_for_a_vnc_desktop():

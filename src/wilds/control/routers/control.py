@@ -1,13 +1,11 @@
 """Sessions and the control lease (plan §3.11)."""
 
-import os
-import secrets
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from pydantic import BaseModel
 
-from .. import provenance
+from .. import config, provenance
 from ..lease import LeaseError, Session, state
 
 router = APIRouter(tags=["control"])
@@ -35,14 +33,18 @@ def require_lease(x_lease_token: Annotated[str | None, Header()] = None) -> None
         raise _http(e) from e
 
 
-def _passphrase_ok(given: str | None, env_var: str) -> bool:
-    expected = os.environ.get(env_var)
-    return bool(expected) and given is not None and secrets.compare_digest(given, expected)
+def require_engineering(x_lease_token: Annotated[str | None, Header()] = None) -> None:
+    """For WILDS mechanisms and calibration: the lease must be held in engineering mode."""
+    require_lease(x_lease_token)
+    if not state.engineering:
+        raise HTTPException(403, "Engineering mode required")
 
 
 def require_to(x_to_passphrase: Annotated[str | None, Header()] = None) -> None:
-    if not _passphrase_ok(x_to_passphrase, "WILDS_TO_PASSPHRASE"):
+    """A valid TO request also shows the TO is online (their page polls with the passphrase)."""
+    if not config.check_to(x_to_passphrase):
         raise HTTPException(403, "Telescope Operator passphrase required")
+    state.touch_to()
 
 
 Me = Annotated[Session, Depends(current_session)]
@@ -69,6 +71,8 @@ class Heartbeat(BaseModel):
     holder: bool
     engineering: bool
     requested: bool
+    refused: bool = False  # the TO refused your last request; asking again clears it
+    refusal_reason: str | None = None
     provenance: str
     lease_token: str | None = None  # only the holder is given it
 
@@ -142,6 +146,8 @@ def heartbeat(session_id: str, request: Request) -> Heartbeat:
         holder=holder,
         engineering=holder and state.engineering,
         requested=s.requested_at is not None,
+        refused=s.refused,
+        refusal_reason=s.refusal_reason,
         provenance=s.prov.summary() if s.prov else "",
         lease_token=state.token if holder else None,
     )
@@ -167,7 +173,7 @@ def release_control(me: Me) -> dict[str, bool]:
 
 @router.post("/control/engineering")
 def engineering(body: Engineering, me: Me) -> dict[str, bool]:
-    if not _passphrase_ok(body.passphrase, "WILDS_ENGINEERING_PASSPHRASE"):
+    if not config.check_engineering(body.passphrase):
         raise HTTPException(403, "Wrong engineering passphrase")
     state.take_engineering(me)
     return {"engineering": True}
