@@ -73,9 +73,9 @@ class Roi(BaseModel):
 
 
 class Settings(BaseModel):
-    exposure_s: float = Field(0.5, ge=EXPOSURE_RANGE_S[0], le=EXPOSURE_RANGE_S[1])
-    gain: int = Field(100, ge=GAIN_RANGE[0], le=GAIN_RANGE[1])
-    offset: int = Field(10, ge=OFFSET_RANGE[0], le=OFFSET_RANGE[1])
+    exposure_s: float = Field(default=0.5, ge=EXPOSURE_RANGE_S[0], le=EXPOSURE_RANGE_S[1])
+    gain: int = Field(default=100, ge=GAIN_RANGE[0], le=GAIN_RANGE[1])
+    offset: int = Field(default=10, ge=OFFSET_RANGE[0], le=OFFSET_RANGE[1])
     binning: Literal[1, 2] = 1
     roi: Roi | None = None  # None: the whole sensor
 
