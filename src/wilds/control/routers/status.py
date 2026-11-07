@@ -15,6 +15,7 @@ from sse_starlette.sse import EventSourceResponse
 
 from .. import config
 from ..activities import registry
+from ..guide_camera import GuideCameraStatus, get_guide_camera
 from ..jobs import Job, manager
 from ..lease import state as lease
 
@@ -68,6 +69,7 @@ class Status(BaseModel):
     time: ServerTime
     to: ToStatus = Field(default_factory=ToStatus)
     activities: dict[str, list[ActivityStatus]] = Field(default_factory=dict)  # running only
+    guide_camera: GuideCameraStatus | None = None  # settings, streaming and the cooler
     jobs: list[Job] = Field(default_factory=list)  # active, then the last few finished
     warnings: list[str] = Field(default_factory=list)
     actions: dict[str, Action] = Field(default_factory=dict)
@@ -94,6 +96,7 @@ def current_status() -> Status:
             ]
             for component, infos in registry.snapshot().items()
         },
+        guide_camera=get_guide_camera().status(),
         jobs=manager.snapshot(),
         warnings=config.get().warnings(),
     )

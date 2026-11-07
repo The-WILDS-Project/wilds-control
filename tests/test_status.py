@@ -14,6 +14,7 @@ def test_status_snapshot_has_the_shape_the_gui_expects():
         "time",
         "to",
         "activities",
+        "guide_camera",
         "jobs",
         "warnings",
         "actions",

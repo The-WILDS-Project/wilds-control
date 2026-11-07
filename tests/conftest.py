@@ -15,6 +15,16 @@ def passphrases_file(tmp_path, monkeypatch):
     return _writer(tmp_path / "passphrases.toml", monkeypatch, "WILDS_CONTROL_PASSPHRASES")
 
 
+@pytest.fixture(autouse=True)
+def fresh_guide_camera():
+    """Each test builds its own guide camera, from its own config."""
+    from wilds.control import guide_camera
+
+    guide_camera.reset()
+    yield
+    guide_camera.reset()
+
+
 def _writer(path, monkeypatch, env):
     monkeypatch.setenv(env, str(path))
     version = [0]

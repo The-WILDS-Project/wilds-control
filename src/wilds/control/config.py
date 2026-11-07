@@ -56,6 +56,12 @@ class Site(BaseModel):
         return v
 
 
+class GuideCameraConfig(BaseModel):
+    # "simulated" is the default so a bare checkout runs; "asi" is the real camera (deployment
+    # only: changing it needs a restart).
+    kind: Literal["simulated", "asi"] = "simulated"
+
+
 OpMode = Literal["development", "production"]
 
 
@@ -68,6 +74,7 @@ class Config(BaseModel):
     passphrases_in_config_toml: bool = False  # a [passphrases] there was ignored
     presence: Presence = Presence()
     site: Site = Site()
+    guide_camera: GuideCameraConfig = GuideCameraConfig()
 
     @property
     def is_development(self) -> bool:

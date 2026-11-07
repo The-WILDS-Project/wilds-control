@@ -4,6 +4,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from . import errors
+from .guide_camera import close_guide_camera, get_guide_camera
 from .jobs import manager as job_manager
 from .lease import state as lease
 from .routers import (
@@ -13,6 +14,7 @@ from .routers import (
     control,
     dev,
     focus,
+    guide_camera,
     jobs,
     lamps,
     slit,
@@ -22,9 +24,10 @@ from .routers import (
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # TODO: initialise broker, camera, solver
+    # TODO: initialise broker, solver
+    get_guide_camera()
     yield
-    # TODO: teardown
+    await close_guide_camera()
 
 
 def create_app() -> FastAPI:
@@ -41,6 +44,7 @@ def create_app() -> FastAPI:
     )
 
     app.include_router(camera.router)
+    app.include_router(guide_camera.router)
     app.include_router(status.router)
     app.include_router(control.router)
     app.include_router(jobs.router)

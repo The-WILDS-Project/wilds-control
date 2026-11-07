@@ -7,6 +7,7 @@ caller never parses text. The same body is a failed job's ``error``.
 from typing import Any, Literal
 
 from fastapi import FastAPI, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
@@ -44,4 +45,19 @@ def install(app: FastAPI) -> None:
         assert isinstance(exc, ApiError)
         return JSONResponse(exc.body.model_dump(), status_code=exc.status)
 
+    async def handle_validation(_: Request, exc: Exception) -> JSONResponse:
+        # FastAPI's own 422 (a body or parameter that does not parse) gets the same shape.
+        assert isinstance(exc, RequestValidationError)
+        errors = [
+            {"where": ".".join(str(p) for p in e["loc"]), "message": e["msg"]} for e in exc.errors()
+        ]
+        first = errors[0] if errors else {"where": "request", "message": "invalid"}
+        body = ErrorBody(
+            code="invalid",
+            message=f"{first['where']}: {first['message']}",
+            details={"errors": errors},
+        )
+        return JSONResponse(body.model_dump(), status_code=422)
+
     app.add_exception_handler(ApiError, handle)
+    app.add_exception_handler(RequestValidationError, handle_validation)
