@@ -1,0 +1,6 @@
+# Development configuration for the VS Code launch entry (WILDS_CONTROL_CONFIG).
+# Deployed copies live in /etc/wilds/wilds.toml and are never committed.
+
+[passphrases]
+to = "dev"
+# engineering is left at its default ("physics") so the default-passphrase warning shows.

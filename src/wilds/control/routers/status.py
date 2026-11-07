@@ -12,6 +12,7 @@ from fastapi import APIRouter
 from pydantic import BaseModel, Field
 from sse_starlette.sse import EventSourceResponse
 
+from .. import config
 from ..lease import state as lease
 
 router = APIRouter(prefix="/status", tags=["status"])
@@ -35,6 +36,10 @@ class TcsStatus(BaseModel):
     stale: bool = True
 
 
+class ToStatus(BaseModel):
+    online: bool = False
+
+
 class Action(BaseModel):
     ok: bool
     why: str | None = None
@@ -43,6 +48,8 @@ class Action(BaseModel):
 class Status(BaseModel):
     control: ControlLease = Field(default_factory=ControlLease)
     tcs: TcsStatus = Field(default_factory=TcsStatus)
+    to: ToStatus = Field(default_factory=ToStatus)
+    warnings: list[str] = Field(default_factory=list)
     actions: dict[str, Action] = Field(default_factory=dict)
 
 
@@ -56,7 +63,9 @@ def current_status() -> Status:
             holder_code=holder.code if holder else None,
             holder_info=holder.prov.summary() if holder and holder.prov else None,
             engineering=lease.engineering,
-        )
+        ),
+        to=ToStatus(online=lease.to_online),
+        warnings=config.get().warnings(),
     )
 
 

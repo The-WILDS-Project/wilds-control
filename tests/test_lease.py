@@ -14,14 +14,13 @@ class Clock:
 
 
 @pytest.fixture
-def clock(monkeypatch):
+def clock(monkeypatch, config_file):
     c = Clock()
     lease.state.sessions.clear()
     lease.state.holder_id = lease.state.token = None
     lease.state.engineering = False
     monkeypatch.setattr(lease.state, "clock", c)
-    monkeypatch.setenv("WILDS_TO_PASSPHRASE", "to-pass")
-    monkeypatch.setenv("WILDS_ENGINEERING_PASSPHRASE", "eng-pass")
+    config_file('[passphrases]\nto = "to-pass"\nengineering = "eng-pass"\n')
     return c
 
 
@@ -86,8 +85,8 @@ def test_to_endpoints_need_the_passphrase(client):
     assert client.post("/control/revoke", headers={"X-TO-Passphrase": "nope"}).status_code == 403
 
 
-def test_to_endpoints_are_closed_when_no_passphrase_is_configured(client, monkeypatch):
-    monkeypatch.delenv("WILDS_TO_PASSPHRASE")
+def test_to_endpoints_are_closed_when_no_passphrase_is_configured(client, config_file):
+    config_file('[passphrases]\nengineering = "eng-pass"\n')
     assert client.get("/control/sessions", headers={"X-TO-Passphrase": ""}).status_code == 403
 
 
