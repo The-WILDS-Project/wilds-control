@@ -1,6 +1,8 @@
 # Development configuration for the VS Code launch entry (WILDS_CONTROL_CONFIG).
 # Deployed copies live in /etc/wilds/config.toml and are never committed.
 
+opmode = "development"  # the default; "production" refuses the /dev helpers
+
 [passphrases]
 to = "dev"
 # engineering is left at its default ("physics") so the default-passphrase warning shows.

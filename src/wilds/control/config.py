@@ -1,4 +1,4 @@
-"""The TOML configuration file (plan §3.10), minimal for now: passphrases and presence.
+"""The TOML configuration file (plan §3.10), minimal for now: opmode, passphrases and presence.
 
 Read from ``$WILDS_CONTROL_CONFIG``, else ``/etc/wilds/config.toml``. The file is checked on
 every access and re-read when it changes, so a new passphrase applies without a restart. An
@@ -12,6 +12,7 @@ import secrets
 import threading
 import tomllib
 from pathlib import Path
+from typing import Literal
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from pydantic import BaseModel, ValidationError, field_validator
@@ -48,10 +49,21 @@ class Site(BaseModel):
         return v
 
 
+OpMode = Literal["development", "production"]
+
+
 class Config(BaseModel):
+    # What this machine accepts: development-only helpers (the demo job) are refused in
+    # production. Development is the default so a bare checkout works; a deployed
+    # config.toml says "production".
+    opmode: OpMode = "development"
     passphrases: Passphrases = Passphrases()
     presence: Presence = Presence()
     site: Site = Site()
+
+    @property
+    def is_development(self) -> bool:
+        return self.opmode == "development"
 
     @property
     def engineering_passphrase_is_default(self) -> bool:

@@ -62,6 +62,7 @@ class Action(BaseModel):
 
 
 class Status(BaseModel):
+    opmode: config.OpMode = "development"
     control: ControlLease = Field(default_factory=ControlLease)
     tcs: TcsStatus = Field(default_factory=TcsStatus)
     time: ServerTime
@@ -77,6 +78,7 @@ def current_status() -> Status:
     lease.expire()
     holder = lease.holder
     return Status(
+        opmode=config.get().opmode,
         control=ControlLease(
             holder=holder.name if holder else None,
             holder_code=holder.code if holder else None,
