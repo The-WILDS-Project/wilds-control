@@ -430,11 +430,16 @@ class GuideCameraBase(BaseModel, abc.ABC):
 
 
 def _jpeg(pixels: np.ndarray) -> bytes:
-    """A display stretch (1st to 99.7th percentile, gamma 0.5), encoded once for every viewer."""
+    """A display stretch from the background (median - 2 sigma) to median + 25 sigma, encoded
+    once for every viewer. Starting at the background keeps noise a quiet grey, which also
+    compresses far better. (Viewer-chosen stretches are the GUI's business, plan §3.8.)"""
     from PIL import Image
 
-    lo, hi = np.percentile(pixels, [1.0, 99.7])
-    scaled = np.clip((pixels.astype(np.float32) - lo) / max(float(hi - lo), 1.0), 0.0, 1.0)
+    sample = pixels[::4, ::4].astype(np.float32)  # a sample is enough for the statistics
+    median = float(np.median(sample))
+    sigma = max(1.4826 * float(np.median(np.abs(sample - median))), 1.0)
+    lo, hi = median - 2 * sigma, median + 25 * sigma
+    scaled = np.clip((pixels.astype(np.float32) - lo) / (hi - lo), 0.0, 1.0)
     out = io.BytesIO()
-    Image.fromarray((np.sqrt(scaled) * 255).astype(np.uint8), "L").save(out, "JPEG", quality=85)
+    Image.fromarray((scaled * 255).astype(np.uint8), "L").save(out, "JPEG", quality=80)
     return out.getvalue()

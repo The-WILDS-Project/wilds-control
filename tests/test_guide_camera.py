@@ -328,3 +328,86 @@ def test_config_picks_the_implementation(client, config_file):
     guide_camera.reset()
     with pytest.raises(NotImplementedError):
         guide_camera.get_guide_camera()
+
+
+# -- the simulated sky ------------------------------------------------------------------
+
+
+def still_camera(**kw) -> SimulatedASICamera:
+    """No jitter and no drift: the only motion is what a test asks for."""
+    cam = SimulatedASICamera(jitter_px=0.0, drift_x_px_s=0.0, drift_y_px_s=0.0, **kw)
+    cam.update_settings(SettingsUpdate(exposure_s=0.001))
+    return cam
+
+
+def centroid(electrons: np.ndarray) -> tuple[float, float]:
+    stars = np.clip(electrons - np.median(electrons), 0, None)
+    ys, xs = np.indices(stars.shape)
+    return float((stars * xs).sum() / stars.sum()), float((stars * ys).sum() / stars.sum())
+
+
+def test_a_telescope_offset_moves_the_stars_by_that_much():
+    cam = still_camera()
+    x0, y0 = centroid(cam._electrons(cam.settings))
+    cam.nudge(6.0, -4.0)
+    x1, y1 = centroid(cam._electrons(cam.settings))
+    assert x1 - x0 == pytest.approx(6.0, abs=0.3) and y1 - y0 == pytest.approx(-4.0, abs=0.3)
+
+
+def test_the_field_drifts_with_time():
+    clock = Clock()
+    cam = still_camera(clock=clock)
+    cam.drift_x_px_s = 0.5
+    x0, _ = centroid(cam._electrons(cam.settings))
+    clock.now += 10
+    x1, _ = centroid(cam._electrons(cam.settings))
+    assert x1 - x0 == pytest.approx(5.0, abs=0.3)
+
+
+def test_image_motion_jitters_the_field_from_frame_to_frame_by_about_jitter_px():
+    cam = still_camera()
+    cam.jitter_px = 0.5
+    xs = [centroid(cam._electrons(cam.settings))[0] for _ in range(60)]
+    assert 0.25 < np.std(xs) < 0.9
+
+
+def test_defocus_spreads_the_light_without_losing_it():
+    cam = still_camera()
+    cam.seeing_fwhm_px = 4.0
+    sharp = cam._electrons(cam.settings)
+    cam.defocus_px = 6.0
+    soft = cam._electrons(cam.settings)
+    assert soft.max() < 0.5 * sharp.max()
+    assert soft.sum() == pytest.approx(sharp.sum(), rel=0.05)
+
+
+def test_the_seeing_changes_a_little_from_frame_to_frame():
+    cam = still_camera()
+    peaks = [cam._electrons(cam.settings).max() for _ in range(30)]
+    assert np.std(peaks) / np.mean(peaks) > 0.02
+
+
+def test_a_frame_takes_its_exposure_time_and_no_less():
+    cam = SimulatedASICamera()
+    cam.update_settings(SettingsUpdate(exposure_s=0.3))
+    start = time.monotonic()
+    cam._expose(cam.settings)
+    assert 0.3 <= time.monotonic() - start < 0.6
+
+
+def test_the_shortest_exposures_give_video_rates():
+    cam = SimulatedASICamera()
+    cam.update_settings(SettingsUpdate(exposure_s=0.001))
+    cam._expose(cam.settings)
+    start = time.monotonic()
+    for _ in range(10):
+        cam._make_frame(cam._expose(cam.settings), cam.settings)
+    assert (time.monotonic() - start) / 10 < 0.1  # better than 10 fps, even on a slow machine
+
+
+def test_binning_sums_the_light_and_a_small_roi_draws_less():
+    cam = still_camera()
+    whole = cam._electrons(cam.settings)
+    cam.update_settings(SettingsUpdate(binning=2))
+    binned = cam._electrons(cam.settings)
+    assert binned.shape == (441, 648) and binned.sum() == pytest.approx(whole.sum(), rel=0.02)
