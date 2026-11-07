@@ -14,6 +14,7 @@ from pydantic import BaseModel, Field
 from sse_starlette.sse import EventSourceResponse
 
 from .. import config
+from ..activities import registry
 from ..lease import state as lease
 
 router = APIRouter(prefix="/status", tags=["status"])
@@ -48,6 +49,12 @@ class ServerTime(BaseModel):
     zone: str  # IANA zone for LDT local time (config.toml [site] timezone)
 
 
+class ActivityStatus(BaseModel):
+    name: str
+    since_ms: int  # when it started, ms since the Unix epoch, UTC
+    details: list[str] = Field(default_factory=list)
+
+
 class Action(BaseModel):
     ok: bool
     why: str | None = None
@@ -58,6 +65,7 @@ class Status(BaseModel):
     tcs: TcsStatus = Field(default_factory=TcsStatus)
     time: ServerTime
     to: ToStatus = Field(default_factory=ToStatus)
+    activities: dict[str, list[ActivityStatus]] = Field(default_factory=dict)  # running only
     warnings: list[str] = Field(default_factory=list)
     actions: dict[str, Action] = Field(default_factory=dict)
 
@@ -75,6 +83,13 @@ def current_status() -> Status:
         ),
         time=ServerTime(utc_ms=time.time_ns() // 1_000_000, zone=config.get().site.timezone),
         to=ToStatus(online=lease.to_online),
+        activities={
+            component: [
+                ActivityStatus(name=i.name, since_ms=i.since_ms, details=list(i.details))
+                for i in infos
+            ]
+            for component, infos in registry.snapshot().items()
+        },
         warnings=config.get().warnings(),
     )
 
