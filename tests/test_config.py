@@ -16,35 +16,37 @@ def test_without_a_file_the_defaults_apply_and_warn():
     assert config.get().warnings()
 
 
-def test_a_file_sets_the_passphrases_and_clears_the_warning(config_file):
-    config_file('[passphrases]\nengineering = "quarks"\nto = "scope"\n')
+def test_a_file_sets_the_passphrases_and_clears_the_warning(config_file, passphrases_file):
+    passphrases_file('[passphrases]\nengineering = "quarks"\nto = "scope"\n')
     assert config.check_engineering("quarks") and not config.check_engineering("physics")
     assert config.check_to("scope")
     assert config.get().warnings() == []
 
 
-def test_a_changed_file_applies_without_a_restart(config_file):
-    config_file('[passphrases]\nengineering = "one"\n')
+def test_a_changed_file_applies_without_a_restart(config_file, passphrases_file):
+    passphrases_file('[passphrases]\nengineering = "one"\n')
     assert config.check_engineering("one")
-    config_file('[passphrases]\nengineering = "two"\n')
+    passphrases_file('[passphrases]\nengineering = "two"\n')
     assert config.check_engineering("two") and not config.check_engineering("one")
 
 
-def test_an_invalid_file_is_rejected_whole_and_the_running_config_kept(config_file, caplog):
-    config_file('[passphrases]\nengineering = "one"\n')
+def test_an_invalid_file_is_rejected_whole_and_the_running_config_kept(
+    config_file, caplog, passphrases_file
+):
+    passphrases_file('[passphrases]\nengineering = "one"\n')
     assert config.check_engineering("one")
     with caplog.at_level(logging.ERROR):
-        config_file("[passphrases\nbroken")
+        passphrases_file("[passphrases\nbroken")
         assert config.check_engineering("one")
-        config_file("[passphrases]\nengineering = 12\n")  # wrong type
+        passphrases_file("[passphrases]\nengineering = 12\n")  # wrong type
         assert config.check_engineering("one")
     assert "rejected" in caplog.text
 
 
-def test_status_carries_the_default_passphrase_warning(config_file):
+def test_status_carries_the_default_passphrase_warning(config_file, passphrases_file):
     client = TestClient(create_app())
     assert any("default" in w for w in client.get("/status").json()["warnings"])
-    config_file('[passphrases]\nengineering = "quarks"\n')
+    passphrases_file('[passphrases]\nengineering = "quarks"\n')
     assert client.get("/status").json()["warnings"] == []
 
 
@@ -63,8 +65,8 @@ def protected():
     return TestClient(app)
 
 
-def test_calibration_needs_the_lease_in_engineering_mode(protected, config_file):
-    config_file('[passphrases]\nto = "t"\n')
+def test_calibration_needs_the_lease_in_engineering_mode(protected, config_file, passphrases_file):
+    passphrases_file('[passphrases]\nto = "t"\n')
     assert protected.post("/calibrate").status_code == 403  # no token
 
     s = protected.post("/sessions", json={"name": "A"}).json()
@@ -92,13 +94,14 @@ class Clock:
 
 
 @pytest.fixture
-def presence(monkeypatch, config_file):
+def presence(monkeypatch, config_file, passphrases_file):
     clock = Clock()
     clock.now = 1000.0
     monkeypatch.setattr(lease.state, "clock", clock)
     lease.state.to_seen = None
     lease.state.to_logged_online = False
-    config_file('[passphrases]\nto = "t"\n[presence]\nto_timeout_s = 60\n')
+    passphrases_file('[passphrases]\nto = "t"\n')
+    config_file("[presence]\nto_timeout_s = 60\n")
     return clock
 
 
@@ -133,3 +136,42 @@ def test_the_ldt_zone_is_configurable_and_a_bad_zone_is_rejected(config_file, ca
         config_file('[site]\ntimezone = "Mars/Olympus"\n')
         assert config.get().site.timezone == "America/Denver"  # rejected whole, kept
     assert "unknown time zone" in caplog.text
+
+
+def test_a_passphrases_section_in_config_toml_is_ignored_with_a_warning(
+    config_file, passphrases_file
+):
+    config_file('[passphrases]\nengineering = "sneaky"\nto = "sneaky"\n')
+    assert config.check_engineering("physics") and not config.check_engineering("sneaky")
+    assert not config.check_to("sneaky")
+    assert any("passphrases.toml" in w for w in config.get().warnings())
+    passphrases_file('[passphrases]\nengineering = "real"\nto = "scope"\n')
+    assert config.check_engineering("real") and config.check_to("scope")
+
+
+def test_each_file_applies_on_its_own(config_file, passphrases_file):
+    passphrases_file('[passphrases]\nto = "t"\n')
+    config_file('opmode = "production"\n')
+    assert config.get().opmode == "production" and config.check_to("t")
+    config_file('opmode = "development"\n')  # the passphrases file is untouched
+    assert config.get().opmode == "development" and config.check_to("t")
+    passphrases_file('[passphrases]\nto = "u"\n')  # and the other way round
+    assert config.get().opmode == "development" and config.check_to("u")
+
+
+def test_the_passphrases_file_holds_nothing_but_the_section(passphrases_file, caplog):
+    passphrases_file('[passphrases]\nengineering = "one"\n')
+    assert config.check_engineering("one")
+    with caplog.at_level(logging.ERROR):
+        passphrases_file('opmode = "production"\n[passphrases]\nengineering = "two"\n')
+        assert config.check_engineering("one")  # rejected whole, the running one kept
+    assert "rejected" in caplog.text
+
+
+def test_a_broken_config_toml_keeps_the_passphrases_too(config_file, passphrases_file, caplog):
+    passphrases_file('[passphrases]\nengineering = "one"\n')
+    assert config.check_engineering("one")
+    with caplog.at_level(logging.ERROR):
+        config_file("opmode = ")
+        assert config.check_engineering("one")
+    assert "rejected" in caplog.text
