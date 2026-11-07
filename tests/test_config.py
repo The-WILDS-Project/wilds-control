@@ -9,14 +9,14 @@ from wilds.control.app import create_app
 from wilds.control.routers.control import require_engineering
 
 
-def test_without_a_file_the_defaults_apply_and_warn():
+def test_without_a_file_the_defaults_apply_and_nobody_is_nagged():
     assert config.check_engineering("physics")
     assert not config.check_engineering("nope")
     assert not config.check_to("anything")  # TO endpoints stay closed until configured
-    assert config.get().warnings()
+    assert config.get().warnings() == []  # the default engineering passphrase is accepted
 
 
-def test_a_file_sets_the_passphrases_and_clears_the_warning(config_file, passphrases_file):
+def test_a_file_sets_the_passphrases(config_file, passphrases_file):
     passphrases_file('[passphrases]\nengineering = "quarks"\nto = "scope"\n')
     assert config.check_engineering("quarks") and not config.check_engineering("physics")
     assert config.check_to("scope")
@@ -43,11 +43,14 @@ def test_an_invalid_file_is_rejected_whole_and_the_running_config_kept(
     assert "rejected" in caplog.text
 
 
-def test_status_carries_the_default_passphrase_warning(config_file, passphrases_file):
+def test_status_has_no_warnings_by_default_and_reports_an_ignored_section(
+    config_file, passphrases_file
+):
     client = TestClient(create_app())
-    assert any("default" in w for w in client.get("/status").json()["warnings"])
-    passphrases_file('[passphrases]\nengineering = "quarks"\n')
     assert client.get("/status").json()["warnings"] == []
+    config_file('[passphrases]\nengineering = "x"\n')
+    warnings = client.get("/status").json()["warnings"]
+    assert len(warnings) == 1 and "passphrases.toml" in warnings[0]
 
 
 @pytest.fixture

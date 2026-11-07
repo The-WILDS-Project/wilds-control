@@ -73,10 +73,6 @@ class Config(BaseModel):
     def is_development(self) -> bool:
         return self.opmode == "development"
 
-    @property
-    def engineering_passphrase_is_default(self) -> bool:
-        return self.passphrases.engineering == DEFAULT_ENGINEERING_PASSPHRASE
-
     def warnings(self) -> list[str]:
         out = []
         if self.passphrases_in_config_toml:
@@ -84,8 +80,6 @@ class Config(BaseModel):
                 "config.toml has a [passphrases] section, which is ignored; "
                 "passphrases are read from passphrases.toml"
             )
-        if self.engineering_passphrase_is_default:
-            out.append("The engineering passphrase is still the default; set it in passphrases.toml")
         return out
 
 
