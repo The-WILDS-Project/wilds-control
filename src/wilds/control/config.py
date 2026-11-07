@@ -85,7 +85,7 @@ class Config(BaseModel):
                 "passphrases are read from passphrases.toml"
             )
         if self.engineering_passphrase_is_default:
-            out.append("The engineering passphrase is still the default; set it in config.toml")
+            out.append("The engineering passphrase is still the default; set it in passphrases.toml")
         return out
 
 
