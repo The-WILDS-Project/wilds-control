@@ -11,6 +11,7 @@ from .routers import (
     adc,
     camera,
     control,
+    dev,
     focus,
     jobs,
     lamps,
@@ -48,5 +49,6 @@ def create_app() -> FastAPI:
     app.include_router(lamps.router)
     app.include_router(adc.router)
     app.include_router(focus.router)
+    app.include_router(dev.router)  # refuses itself unless opmode is development
 
     return app

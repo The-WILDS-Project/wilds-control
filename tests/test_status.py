@@ -8,6 +8,7 @@ def test_status_snapshot_has_the_shape_the_gui_expects():
     assert r.status_code == 200
     body = r.json()
     assert set(body) == {
+        "opmode",
         "control",
         "tcs",
         "time",
