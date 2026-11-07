@@ -8,6 +8,7 @@ The check is made per request, and config.toml is re-read when it changes, so sw
 mode needs no restart.
 """
 
+import asyncio
 from enum import Enum
 from typing import Literal
 
@@ -17,7 +18,7 @@ from pydantic import BaseModel
 from .. import config
 from ..activities import registry
 from ..errors import ApiError
-from ..jobs import Job, JobContext, StartedBy, manager
+from ..jobs import Job, JobCancelled, JobContext, StartedBy, manager
 from .control import Me, require_lease
 
 
@@ -51,7 +52,18 @@ class DemoRequest(BaseModel):
     queue: bool = False  # wait for the components instead of answering 409 busy
 
 
+WIND_DOWN_S = 1.5  # a real job takes a while to stop; long enough to see Cancelling
+
+
 async def _demo(ctx: JobContext, outcome: str, seconds: float) -> dict[str, str]:
+    try:
+        return await _steps(ctx, outcome, seconds)
+    except JobCancelled:
+        await asyncio.sleep(WIND_DOWN_S)  # Cancelling stays raised until the job returns
+        raise
+
+
+async def _steps(ctx: JobContext, outcome: str, seconds: float) -> dict[str, str]:
     """Three phases: slit and ADC move, then the guide camera exposes, then a last bit."""
     third = seconds / 3
     tick = 0.25
