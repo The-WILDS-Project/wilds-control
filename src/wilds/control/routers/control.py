@@ -71,6 +71,8 @@ class Heartbeat(BaseModel):
     holder: bool
     engineering: bool
     requested: bool
+    refused: bool = False  # the TO refused your last request; asking again clears it
+    refusal_reason: str | None = None
     provenance: str
     lease_token: str | None = None  # only the holder is given it
 
@@ -144,6 +146,8 @@ def heartbeat(session_id: str, request: Request) -> Heartbeat:
         holder=holder,
         engineering=holder and state.engineering,
         requested=s.requested_at is not None,
+        refused=s.refused,
+        refusal_reason=s.refusal_reason,
         provenance=s.prov.summary() if s.prov else "",
         lease_token=state.token if holder else None,
     )

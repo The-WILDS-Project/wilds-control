@@ -145,3 +145,28 @@ def test_refuse_clears_the_request(client):
 def test_unknown_session_header_is_404(client):
     assert client.post("/control/requests", headers={"X-Session-Id": "nope"}).status_code == 404
     assert client.post("/control/requests").status_code == 404
+
+
+def test_a_refusal_is_reported_to_the_session_until_it_asks_again(client):
+    s = new_session(client)
+    beat = lambda: client.post(f"/sessions/{s['session_id']}/heartbeat").json()  # noqa: E731
+    assert beat()["refused"] is False
+
+    client.post("/control/requests", headers=sid(s))
+    assert beat()["requested"] is True and beat()["refused"] is False
+
+    client.post(f"/control/requests/{s['code']}/refuse", json={"reason": "busy"}, headers=TO)
+    hb = beat()
+    assert hb["refused"] is True and hb["refusal_reason"] == "busy" and hb["requested"] is False
+
+    client.post("/control/requests", headers=sid(s))  # asking again clears it
+    hb = beat()
+    assert hb["refused"] is False and hb["refusal_reason"] is None and hb["requested"] is True
+
+
+def test_a_grant_clears_an_earlier_refusal(client):
+    s = new_session(client)
+    client.post(f"/control/requests/{s['code']}/refuse", json={"reason": "no"}, headers=TO)
+    client.post(f"/control/requests/{s['code']}/grant", headers=TO)
+    hb = client.post(f"/sessions/{s['session_id']}/heartbeat").json()
+    assert hb["holder"] is True and hb["refused"] is False

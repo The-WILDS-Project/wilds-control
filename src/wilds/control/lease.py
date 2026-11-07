@@ -45,6 +45,8 @@ class Session:
     name: str
     last_seen: float
     requested_at: float | None = None
+    refused: bool = False  # the TO refused this session's last request (until it asks again)
+    refusal_reason: str | None = None
     prov: Provenance | None = None
 
 
@@ -90,6 +92,7 @@ class ControlState:
         self.engineering = engineering
         self.token = secrets.token_urlsafe(24)
         s.requested_at = None
+        s.refused, s.refusal_reason = False, None
 
     @property
     def to_online(self) -> bool:
@@ -156,6 +159,7 @@ class ControlState:
 
     def request(self, s: Session) -> None:
         s.requested_at = self.clock()  # re-applying moves the request to the top
+        s.refused, s.refusal_reason = False, None
         audit.info("control requested by %s", self._label(s))
 
     def grant(self, code: str) -> Session:
@@ -170,6 +174,7 @@ class ControlState:
     def refuse(self, code: str, reason: str) -> None:
         s = self.by_code(code)
         s.requested_at = None
+        s.refused, s.refusal_reason = True, (reason or None)
         audit.info("control refused for %s: %s", self._label(s), reason or "no reason given")
 
     def revoke(self) -> None:
