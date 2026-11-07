@@ -1,6 +1,6 @@
 """The TOML configuration file (plan §3.10), minimal for now: passphrases and presence.
 
-Read from ``$WILDS_CONTROL_CONFIG``, else ``/etc/wilds/wilds.toml``. The file is checked on
+Read from ``$WILDS_CONTROL_CONFIG``, else ``/etc/wilds/config.toml``. The file is checked on
 every access and re-read when it changes, so a new passphrase applies without a restart. An
 invalid file is rejected whole and the running configuration kept. A missing file means the
 defaults. Passphrases are deployment settings: file only, never editable from the GUI.
@@ -17,7 +17,7 @@ from pydantic import BaseModel, ValidationError
 
 log = logging.getLogger(__name__)
 
-DEFAULT_PATH = "/etc/wilds/wilds.toml"
+DEFAULT_PATH = "/etc/wilds/config.toml"
 DEFAULT_ENGINEERING_PASSPHRASE = "physics"
 
 
@@ -43,7 +43,7 @@ class Config(BaseModel):
     def warnings(self) -> list[str]:
         out = []
         if self.engineering_passphrase_is_default:
-            out.append("The engineering passphrase is still the default; set it in wilds.toml")
+            out.append("The engineering passphrase is still the default; set it in config.toml")
         return out
 
 

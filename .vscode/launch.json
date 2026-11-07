@@ -10,7 +10,7 @@
       "python": "${workspaceFolder}/../.venv/bin/python",
       "cwd": "${workspaceFolder}",
       "env": {
-        "WILDS_CONTROL_CONFIG": "${workspaceFolder}/dev/wilds.toml"
+        "WILDS_CONTROL_CONFIG": "${workspaceFolder}/dev/config.toml"
       },
       "justMyCode": true
     }

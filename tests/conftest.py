@@ -5,8 +5,8 @@ import pytest
 
 @pytest.fixture(autouse=True)
 def config_file(tmp_path, monkeypatch):
-    """Every test gets its own (initially absent) wilds.toml; call the result with TOML text."""
-    path = tmp_path / "wilds.toml"
+    """Every test gets its own (initially absent) config.toml; call the result with TOML text."""
+    path = tmp_path / "config.toml"
     monkeypatch.setenv("WILDS_CONTROL_CONFIG", str(path))
     version = [0]
 
