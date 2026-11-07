@@ -59,6 +59,7 @@ class ControlState:
     to_seen: float | None = None  # last valid request from a Telescope Operator page
     to_logged_online: bool = False
     clock: Callable[[], float] = time.monotonic
+    holder_listeners: list[Callable[[], None]] = field(default_factory=list)
 
     # -- helpers ------------------------------------------------------------------------
 
@@ -82,17 +83,35 @@ class ControlState:
             if code not in used:
                 return code
 
+    def on_holder_change(self, listener: Callable[[], None]) -> None:
+        """Call ``listener`` whenever the lease changes hands or lapses (once per listener)."""
+        if listener not in self.holder_listeners:
+            self.holder_listeners.append(listener)
+
+    def _holder_changed(self) -> None:
+        for listener in list(self.holder_listeners):
+            try:
+                listener()
+            except Exception:
+                audit.exception("holder-change listener failed")
+
     def _clear_lease(self) -> None:
+        had = self.holder_id is not None
         self.holder_id = None
         self.engineering = False
         self.token = None
+        if had:
+            self._holder_changed()
 
     def _give_lease(self, s: Session, *, engineering: bool) -> None:
+        changed = self.holder_id != s.id
         self.holder_id = s.id
         self.engineering = engineering
         self.token = secrets.token_urlsafe(24)
         s.requested_at = None
         s.refused, s.refusal_reason = False, None
+        if changed:
+            self._holder_changed()
 
     @property
     def to_online(self) -> bool:

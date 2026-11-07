@@ -15,6 +15,7 @@ from sse_starlette.sse import EventSourceResponse
 
 from .. import config
 from ..activities import registry
+from ..jobs import Job, manager
 from ..lease import state as lease
 
 router = APIRouter(prefix="/status", tags=["status"])
@@ -66,6 +67,7 @@ class Status(BaseModel):
     time: ServerTime
     to: ToStatus = Field(default_factory=ToStatus)
     activities: dict[str, list[ActivityStatus]] = Field(default_factory=dict)  # running only
+    jobs: list[Job] = Field(default_factory=list)  # active, then the last few finished
     warnings: list[str] = Field(default_factory=list)
     actions: dict[str, Action] = Field(default_factory=dict)
 
@@ -90,6 +92,7 @@ def current_status() -> Status:
             ]
             for component, infos in registry.snapshot().items()
         },
+        jobs=manager.snapshot(),
         warnings=config.get().warnings(),
     )
 
@@ -102,8 +105,19 @@ async def get_status() -> Status:
 @router.get("/stream")
 async def stream_status() -> EventSourceResponse:
     async def events() -> AsyncIterator[dict[str, str]]:
-        while True:
-            yield {"event": "status", "data": current_status().model_dump_json()}
-            await asyncio.sleep(STATUS_PERIOD_S)
+        jobs = manager.subscribe()
+        loop = asyncio.get_running_loop()
+        try:
+            while True:
+                yield {"event": "status", "data": current_status().model_dump_json()}
+                deadline = loop.time() + STATUS_PERIOD_S
+                while (left := deadline - loop.time()) > 0:
+                    try:
+                        job = await asyncio.wait_for(jobs.get(), left)
+                    except TimeoutError:
+                        break
+                    yield {"event": "job", "data": job.model_dump_json()}
+        finally:
+            manager.unsubscribe(jobs)
 
     return EventSourceResponse(events())
