@@ -77,8 +77,6 @@ class Provenance(BaseModel):
         elif self.display:
             who = ", ".join(self.vnc_viewers) if self.vnc_viewers else "viewer unknown"
             lines.append(f"Desktop: VNC {self.display} (best effort: {who})")
-        if self.user_agent:
-            lines.append(f"Browser: {self.user_agent}")
         h = self.hints
         if h.timezone:
             lines.append(f"Time zone: {h.timezone}")

@@ -44,7 +44,7 @@ def test_session_carries_provenance_and_it_reaches_the_tooltip_fields(client, co
     )
     body = r.json()
     assert "Address: testclient" in body["provenance"]
-    assert "Browser: TestBrowser/1.0" in body["provenance"]
+    assert "Browser" not in body["provenance"]  # kept in the details, not in the tooltip
     assert "Time zone: Asia/Jerusalem" in body["provenance"]
     assert "Opened as: wilds.lowell.edu" in body["provenance"]
 
