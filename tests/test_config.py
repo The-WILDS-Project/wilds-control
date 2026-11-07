@@ -124,3 +124,12 @@ def test_opening_the_page_without_the_passphrase_does_not_make_the_to_online(pre
     assert client.get("/control/sessions").status_code == 403
     assert client.get("/control/sessions", headers={"X-TO-Passphrase": "wrong"}).status_code == 403
     assert client.get("/status").json()["to"]["online"] is False
+
+
+def test_the_ldt_zone_is_configurable_and_a_bad_zone_is_rejected(config_file, caplog):
+    config_file('[site]\ntimezone = "America/Denver"\n')
+    assert config.get().site.timezone == "America/Denver"
+    with caplog.at_level(logging.ERROR):
+        config_file('[site]\ntimezone = "Mars/Olympus"\n')
+        assert config.get().site.timezone == "America/Denver"  # rejected whole, kept
+    assert "unknown time zone" in caplog.text

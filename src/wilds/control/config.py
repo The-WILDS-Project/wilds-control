@@ -12,8 +12,9 @@ import secrets
 import threading
 import tomllib
 from pathlib import Path
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel, ValidationError, field_validator
 
 log = logging.getLogger(__name__)
 
@@ -32,9 +33,25 @@ class Presence(BaseModel):
     to_timeout_s: float = 75.0
 
 
+class Site(BaseModel):
+    # "LDT local time" in the GUI header. Arizona has no daylight saving, so this is UTC-7
+    # all year; the GUI formats times in this zone from the server's UTC clock.
+    timezone: str = "America/Phoenix"
+
+    @field_validator("timezone")
+    @classmethod
+    def _known_zone(cls, v: str) -> str:
+        try:
+            ZoneInfo(v)
+        except (ZoneInfoNotFoundError, ValueError) as e:
+            raise ValueError(f"unknown time zone {v!r}") from e
+        return v
+
+
 class Config(BaseModel):
     passphrases: Passphrases = Passphrases()
     presence: Presence = Presence()
+    site: Site = Site()
 
     @property
     def engineering_passphrase_is_default(self) -> bool:
