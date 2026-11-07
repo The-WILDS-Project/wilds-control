@@ -10,8 +10,8 @@ from wilds.control.jobs import manager
 
 
 @pytest.fixture
-def client(config_file):
-    config_file('[passphrases]\nto = "to-pass"\n')
+def client(config_file, passphrases_file):
+    passphrases_file('[passphrases]\nto = "to-pass"\n')
     lease.state.sessions.clear()
     lease.state.holder_id = lease.state.token = None
     manager.reset()
@@ -77,7 +77,7 @@ def test_the_failing_demo_job_ends_failed_with_the_standard_error(client):
 
 def test_production_refuses_the_dev_helpers_without_a_restart(client, config_file):
     h = hold_lease(client)
-    config_file('opmode = "production"\n[passphrases]\nto = "to-pass"\n')
+    config_file('opmode = "production"\n')
     assert client.get("/status").json()["opmode"] == "production"
     r = client.post("/dev/jobs/demo", headers=h)
     assert r.status_code == 404 and r.json()["code"] == "not_found"

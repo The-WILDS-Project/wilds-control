@@ -34,8 +34,10 @@ def test_browser_strings_are_cleaned_and_bounded():
     assert provenance.clean("") is None
 
 
-def test_session_carries_provenance_and_it_reaches_the_tooltip_fields(client, config_file):
-    config_file('[passphrases]\nto = "p"\n')
+def test_session_carries_provenance_and_it_reaches_the_tooltip_fields(
+    client, config_file, passphrases_file
+):
+    passphrases_file('[passphrases]\nto = "p"\n')
     hints = {"timezone": "Asia/Jerusalem", "page_host": "wilds.lowell.edu"}
     r = client.post(
         "/sessions",

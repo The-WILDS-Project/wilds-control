@@ -6,8 +6,17 @@ import pytest
 @pytest.fixture(autouse=True)
 def config_file(tmp_path, monkeypatch):
     """Every test gets its own (initially absent) config.toml; call the result with TOML text."""
-    path = tmp_path / "config.toml"
-    monkeypatch.setenv("WILDS_CONTROL_CONFIG", str(path))
+    return _writer(tmp_path / "config.toml", monkeypatch, "WILDS_CONTROL_CONFIG")
+
+
+@pytest.fixture(autouse=True)
+def passphrases_file(tmp_path, monkeypatch):
+    """Likewise for passphrases.toml, the file holding the [passphrases] section."""
+    return _writer(tmp_path / "passphrases.toml", monkeypatch, "WILDS_CONTROL_PASSPHRASES")
+
+
+def _writer(path, monkeypatch, env):
+    monkeypatch.setenv(env, str(path))
     version = [0]
 
     def write(text: str) -> None:

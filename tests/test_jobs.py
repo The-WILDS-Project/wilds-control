@@ -206,8 +206,8 @@ async def test_retention_keeps_only_the_last_finished_jobs(monkeypatch):
 
 
 @pytest.fixture
-def client(config_file):
-    config_file('[passphrases]\nto = "to-pass"\nengineering = "eng-pass"\n')
+def client(config_file, passphrases_file):
+    passphrases_file('[passphrases]\nto = "to-pass"\nengineering = "eng-pass"\n')
     lease.state.sessions.clear()
     lease.state.holder_id = lease.state.token = None
     app: FastAPI = create_app()
@@ -248,8 +248,8 @@ def test_cancel_needs_the_lease_and_then_cancels(client):
     assert [j["id"] for j in client.get("/status").json()["jobs"]] == [job_id]
 
 
-async def test_the_lease_changing_hands_drops_queued_jobs(config_file):
-    config_file('[passphrases]\nto = "to-pass"\nengineering = "eng-pass"\n')
+async def test_the_lease_changing_hands_drops_queued_jobs(config_file, passphrases_file):
+    passphrases_file('[passphrases]\nto = "to-pass"\nengineering = "eng-pass"\n')
     create_app()  # registers manager.handover as a lease listener
     lease.state.sessions.clear()
     lease.state.holder_id = lease.state.token = None
