@@ -57,5 +57,5 @@ ignore = [
 known-first-party = ["wilds"]
 
 [tool.uv.sources]
-wilds-bridge = { path = "../wilds-bridge", editable = true }
-wilds-solving = { path = "../wilds-solving", editable = true }
+wilds-bridge = { path = "../bridge", editable = true }
+wilds-solving = { path = "../solving", editable = true }
