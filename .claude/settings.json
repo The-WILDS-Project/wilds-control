@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(../.venv/bin/ruff check .)",
+      "Bash(ruff check . -q)",
+      "Bash(ruff check .)",
+      "Bash(../.venv/bin/ruff format --check .)",
+      "Bash(ruff format --check .)",
+      "mcp__claude-vscode__getDiagnostics",
+      "mcp__claude_ai_Gmail__get_thread",
+      "mcp__claude_ai_Gmail__search_threads"
+    ]
+  }
+}
