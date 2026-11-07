@@ -10,7 +10,7 @@ from wilds.control.activities import Activities, ActivityEvent, Registry
 class Move(Enum):
     Slewing = 1
     Parking = 2
-    Aborting = 3
+    Cancelling = 3
 
 
 class Other(Enum):
@@ -27,7 +27,7 @@ def test_start_and_end_track_the_running_set_in_start_order():
     a.start(Move.Parking)
     a.start(Move.Slewing)
     assert a.names == ["Parking", "Slewing"]
-    assert a.is_active(Move.Slewing) and not a.is_active(Move.Aborting)
+    assert a.is_active(Move.Slewing) and not a.is_active(Move.Cancelling)
     a.end(Move.Parking)
     assert a.names == ["Slewing"] and not a.is_idle()
     a.end(Move.Slewing)
@@ -90,24 +90,24 @@ def test_a_failing_listener_cannot_fail_the_operation_it_announces():
 
 def test_wait_clear_returns_when_the_activity_ends():
     a = make()
-    a.start(Move.Aborting)
-    threading.Timer(0.05, a.end, [Move.Aborting]).start()
-    assert a.wait_clear(Move.Aborting, timeout=2, interval=0.01) is True
+    a.start(Move.Cancelling)
+    threading.Timer(0.05, a.end, [Move.Cancelling]).start()
+    assert a.wait_clear(Move.Cancelling, timeout=2, interval=0.01) is True
 
 
 def test_wait_clear_times_out_and_leaves_the_activity_set():
     a = make()
-    a.start(Move.Aborting)
-    assert a.wait_clear(Move.Aborting, timeout=0.05, interval=0.01) is False
-    assert a.is_active(Move.Aborting)
+    a.start(Move.Cancelling)
+    assert a.wait_clear(Move.Cancelling, timeout=0.05, interval=0.01) is False
+    assert a.is_active(Move.Cancelling)
 
 
 async def test_await_clear_both_ways():
     a = make()
-    a.start(Move.Aborting)
-    assert await a.await_clear(Move.Aborting, timeout=0.05, interval=0.01) is False
-    threading.Timer(0.05, a.end, [Move.Aborting]).start()
-    assert await a.await_clear(Move.Aborting, timeout=2, interval=0.01) is True
+    a.start(Move.Cancelling)
+    assert await a.await_clear(Move.Cancelling, timeout=0.05, interval=0.01) is False
+    threading.Timer(0.05, a.end, [Move.Cancelling]).start()
+    assert await a.await_clear(Move.Cancelling, timeout=2, interval=0.01) is True
 
 
 def test_registry_lists_only_components_with_something_running():

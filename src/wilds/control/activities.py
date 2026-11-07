@@ -1,7 +1,7 @@
 """What each component is doing right now (plan §3.13).
 
 A component owns an :class:`Activities`, built on its own ``Enum`` of things it can be doing
-(``Slewing``, ``Exposing``, ``Aborting``...). The state is the set of running members, kept in
+(``Slewing``, ``Exposing``, ``Cancelling``...). The state is the set of running members, kept in
 start order. It goes on the wire as *names*, never as a bitmask, so adding, reordering or
 removing a member cannot change what a consumer reads.
 

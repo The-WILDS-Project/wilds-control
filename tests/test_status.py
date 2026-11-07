@@ -29,7 +29,7 @@ def test_status_lists_running_activities_by_component():
 
     class Move(Enum):
         Slewing = 1
-        Aborting = 2
+        Cancelling = 2
 
     registry.clear()
     try:
