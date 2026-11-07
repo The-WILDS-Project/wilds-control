@@ -198,12 +198,12 @@ def test_the_hardware_is_read_at_most_once_a_second():
 def test_a_colder_sensor_gives_a_cleaner_dark_frame():
     clock = Clock()
     cam = SimulatedASICamera(clock=clock)
-    cam.update_settings(SettingsUpdate(exposure_s=0.01, gain=300))
+    cam.update_settings(SettingsUpdate(exposure_s=0.5, gain=300))
     warm = cam._expose(cam.settings).mean()
     cam.set_cooler(CoolerRequest(enabled=True, setpoint_c=-15))
     clock.now += 600
     cold = cam._expose(cam.settings).mean()
-    assert cold <= warm
+    assert cold < warm - 1  # about 6 counts at this exposure and gain, noise is ~0.05
 
 
 def test_a_camera_without_a_cooler_refuses_cooler_requests():
