@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from pydantic import BaseModel
 
 from .. import config, provenance
+from ..jobs import StartedBy
 from ..lease import LeaseError, Session, state
 
 router = APIRouter(tags=["control"])
@@ -45,6 +46,15 @@ def require_to(x_to_passphrase: Annotated[str | None, Header()] = None) -> None:
     if not config.check_to(x_to_passphrase):
         raise HTTPException(403, "Telescope Operator passphrase required")
     state.touch_to()
+
+
+def holder_who() -> StartedBy:
+    """Who holds control now: the name and code a settings change is recorded under. Use after
+    :func:`require_lease`, which has checked the token."""
+    holder = state.holder
+    if holder is None:
+        raise HTTPException(403, "You do not hold control")
+    return StartedBy(name=holder.name, code=holder.code)
 
 
 Me = Annotated[Session, Depends(current_session)]

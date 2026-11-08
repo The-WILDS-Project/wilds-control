@@ -138,7 +138,7 @@ def test_a_new_handle_on_the_same_store_loads_what_was_saved(store, conf):
 
 
 def test_a_stored_section_that_no_longer_validates_stops_the_component_loudly(store):
-    ConfHandle("guide-camera", "conf", CamConf, store).save(CamConf(), who=ARIE)
+    ConfHandle("guide-camera", "conf", CamConf, store).save(CamConf(gain=5), who=ARIE)
     import sqlite3
 
     with sqlite3.connect(store.path) as db:
@@ -275,3 +275,89 @@ def test_the_registry_hands_out_one_handle_per_component_and_slice(store):
 
 def test_the_module_registry_exists_and_uses_the_one_store(tmp_path):
     assert isinstance(confmod.confs, ConfRegistry)
+
+
+# -- the component's say (before_change) ---------------------------------------------------------
+
+
+def test_a_component_can_refuse_a_change_and_then_nothing_is_recorded_or_announced(conf):
+    heard = []
+    conf.on_change(lambda *a: heard.append(a))
+
+    def busy(old, new, changed):
+        if "gain" in changed:
+            raise ApiError(409, "busy", "the camera is exposing")
+
+    conf.before_change(busy)
+    conf.save(CamConf(exposure_s=2.0), who=ARIE)  # not refused
+    with pytest.raises(ApiError) as e:
+        conf.save(CamConf(exposure_s=2.0, gain=400), who=ARIE)
+    assert e.value.status == 409
+    with pytest.raises(ApiError):
+        conf.patch({"gain": 400}, who=ARIE)
+    assert conf.current.gain == 100 and conf.version == 1 and len(conf.history()) == 1
+    assert len(heard) == 1  # only the first save was announced
+
+
+def test_the_hook_hears_the_old_and_new_models_and_the_changed_keys_before_the_swap(conf):
+    seen = []
+    conf.before_change(
+        lambda old, new, changed: seen.append((old.gain, new.gain, changed, conf.current.gain))
+    )
+    conf.patch({"gain": 250}, who=ARIE)
+    assert seen == [(100, 250, ["gain"], 100)]  # still the old model while it decides
+
+
+def test_a_change_that_changes_nothing_does_not_ask(conf):
+    asked = []
+    conf.before_change(lambda *a: asked.append(a))
+    assert conf.save(CamConf(), who=ARIE) is None
+    assert asked == []
+
+
+def test_a_hook_that_applies_to_hardware_and_fails_leaves_the_setting_unrecorded(conf):
+    device = {"gain": 100}
+
+    def apply(old, new, changed):
+        if "gain" in changed:
+            if new.gain > 300:
+                raise OSError("the camera does not answer")
+            device["gain"] = new.gain
+
+    conf.before_change(apply)
+    conf.patch({"gain": 200}, who=ARIE)
+    with pytest.raises(OSError):
+        conf.patch({"gain": 400}, who=ARIE)
+    assert (
+        device["gain"] == 200 == conf.current.gain and conf.version == 1
+    )  # store, live and device agree
+
+
+def test_a_refused_revert_is_not_recorded_either(conf):
+    conf.save(CamConf(gain=1), who=ARIE)
+    conf.save(CamConf(gain=2), who=ARIE)
+
+    def never(old, new, changed):
+        raise ApiError(409, "busy", "not now")
+
+    conf.before_change(never)
+    with pytest.raises(ApiError):
+        conf.revert(1, who=NOA)
+    assert conf.current.gain == 2 and conf.version == 2
+
+
+def test_reverting_to_a_version_that_never_existed_is_refused(conf):
+    from wilds.control.settings_store import UnknownVersion
+
+    conf.save(CamConf(gain=1), who=ARIE)
+    with pytest.raises(UnknownVersion):
+        conf.revert(9, who=ARIE)
+
+
+def test_the_registry_adopts_a_handle_a_component_built_and_replaces_an_older_one(store):
+    reg = ConfRegistry()
+    first = ConfHandle("adc", "conf", CamConf, store)
+    second = ConfHandle("adc", "conf", CamConf, store)
+    reg.add(first)
+    reg.add(second)
+    assert reg.get("adc") is second

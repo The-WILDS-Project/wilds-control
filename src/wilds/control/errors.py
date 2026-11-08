@@ -9,7 +9,7 @@ from typing import Any, Literal
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
 ErrorCode = Literal[
     "lease_required",  # 403
@@ -60,5 +60,20 @@ def install(app: FastAPI) -> None:
         )
         return JSONResponse(body.model_dump(), status_code=422)
 
+    async def handle_model(_: Request, exc: Exception) -> JSONResponse:
+        # A settings change that fails its model's limits (conf.patch), raised inside a handler.
+        assert isinstance(exc, ValidationError)
+        errors = [
+            {"where": ".".join(str(p) for p in e["loc"]), "message": e["msg"]} for e in exc.errors()
+        ]
+        first = errors[0] if errors else {"where": "request", "message": "invalid"}
+        body = ErrorBody(
+            code="invalid",
+            message=f"{first['where']}: {first['message']}",
+            details={"errors": errors},
+        )
+        return JSONResponse(body.model_dump(), status_code=422)
+
     app.add_exception_handler(ApiError, handle)
     app.add_exception_handler(RequestValidationError, handle_validation)
+    app.add_exception_handler(ValidationError, handle_model)

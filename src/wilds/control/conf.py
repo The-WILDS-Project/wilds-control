@@ -22,10 +22,12 @@ new one, so anyone holding ``component.conf`` sees the change, and nobody sees h
 ``snap = conf.snapshot()`` once and use that (a procedure must not see its plate scale change
 half-way through). Treat containers inside a model (a dict of presets) as read-only too.
 
-**One way to write:** ``save``, ``patch`` or ``revert`` validate, record who/when/why in the
-store, swap the live model and then tell the listeners (``on_change``), in that order, so the
-live model and the store cannot disagree. Components subscribe to apply a change to hardware.
-A procedure never saves: it works on its snapshot, with its own temporary overrides.
+**One way to write:** ``save``, ``patch`` or ``revert`` validate, ask the component (the
+``before_change`` hooks, which may refuse: busy, or a value this hardware cannot take), record
+who/when/why in the store, swap the live model and then tell the listeners (``on_change``), in
+that order, so the live model and the store cannot disagree: a refused change is never recorded.
+Components subscribe to apply a change to hardware. A procedure never saves: it works on its
+snapshot, with its own temporary overrides.
 """
 
 import logging
@@ -38,12 +40,13 @@ from pydantic import BaseModel, ConfigDict, Field
 from . import config
 from .errors import ApiError
 from .jobs import StartedBy
-from .settings_store import Entry, SettingsStore, get_store
+from .settings_store import Entry, SettingsStore, UnknownVersion, get_store
 
 log = logging.getLogger(__name__)
 
 Slice = Literal["conf", "cal"]
 Listener = Callable[[Any, Any, list[str]], None]  # (old model, new model, keys changed)
+Veto = Callable[[Any, Any, list[str]], None]  # same arguments; raises to refuse the change
 
 
 class ConfModel(BaseModel):
@@ -69,9 +72,13 @@ def setting(
     )
 
 
-def by_opmode(*, development, production):
+def by_opmode(*, development, production, label: str | None = None, help: str | None = None):
     """A default that depends on ``opmode`` in config.toml, read when the model is built."""
-    return Field(default_factory=lambda: development if config.get().is_development else production)
+    return Field(
+        default_factory=lambda: development if config.get().is_development else production,
+        title=label,
+        description=help,
+    )
 
 
 class ConfHandle[M: ConfModel]:
@@ -89,6 +96,7 @@ class ConfHandle[M: ConfModel]:
         self._store = store or get_store()
         self._lock = threading.Lock()
         self._listeners: list[Listener] = []
+        self._vetoes: list[Veto] = []
         self._current: M = self._store.get(self.section, model)
         self._version = self._store.version(self.section)
 
@@ -143,16 +151,17 @@ class ConfHandle[M: ConfModel]:
                 f"{self.section} takes a {self.model.__name__}, not {type(new).__name__}"
             )
         with self._lock:
+            old = self._current
+            changed = _changed(old, new)
+            if not changed:
+                return None
+            self._allow(old, new, changed)  # the component may refuse; then nothing is recorded
             entry = self._store.put(
                 self.section, new, who=who, reason=reason, expected_version=expected_version
             )
             if entry is None:
                 return None
-            old, self._current, self._version = (
-                self._current,
-                new.model_copy(deep=True),
-                entry.version,
-            )
+            self._current, self._version = new.model_copy(deep=True), entry.version
             current = self._current
         self._notify(old, current, entry.changed)
         return entry
@@ -173,17 +182,37 @@ class ConfHandle[M: ConfModel]:
     def revert(self, version: int, *, who: StartedBy, reason: str | None = None) -> Entry | None:
         """Restore an earlier version as a new one, and make it live."""
         with self._lock:
+            old = self._current
+            try:
+                target = self.model.model_validate(self._store.entry(self.section, version).values)
+            except KeyError as e:
+                raise UnknownVersion(str(e)) from e
+            changed = _changed(old, target)
+            if changed:
+                self._allow(old, target, changed)
             entry = self._store.revert(self.section, version, self.model, who=who, reason=reason)
             if entry is None:
                 return None
-            old, self._current, self._version = (
-                self._current,
-                self.model.model_validate(entry.values),
-                entry.version,
-            )
+            self._current, self._version = self.model.model_validate(entry.values), entry.version
             current = self._current
         self._notify(old, current, entry.changed)
         return entry
+
+    # -- the component's say ------------------------------------------------------------
+
+    def before_change(self, veto: Veto) -> None:
+        """Ask ``veto(old, new, changed_keys)`` before a change is recorded. This is where a
+        component checks that it can take the change (a window inside the sensor, not busy)
+        and applies it to its hardware: if it raises (an ``ApiError`` such as ``409 busy``, or
+        any error the caller should see) nothing is saved, swapped or announced, so a device
+        that refused or failed is never recorded as having the setting. It runs under the
+        handle's lock, so it must be quick and must not save."""
+        if veto not in self._vetoes:
+            self._vetoes.append(veto)
+
+    def _allow(self, old: M, new: M, changed: list[str]) -> None:
+        for veto in list(self._vetoes):
+            veto(old, new, changed)
 
     # -- listeners ----------------------------------------------------------------------
 
@@ -199,6 +228,11 @@ class ConfHandle[M: ConfModel]:
                 listener(old, new, changed)
             except Exception:
                 log.exception("%s: a change listener failed", self.section)
+
+
+def _changed(old: BaseModel, new: BaseModel) -> list[str]:
+    before, after = old.model_dump(mode="json"), new.model_dump(mode="json")
+    return sorted(k for k in before.keys() | after.keys() if before.get(k) != after.get(k))
 
 
 class ConfRegistry:
@@ -222,6 +256,11 @@ class ConfRegistry:
             return have
         self._handles[key] = handle = ConfHandle(component, slice, model, store)
         return handle
+
+    def add(self, handle: ConfHandle[Any]) -> None:
+        """Adopt a handle a component built itself, replacing an earlier one (a component that
+        is made again, as in tests, takes over its name)."""
+        self._handles[(handle.component, handle.slice)] = handle
 
     def get(self, component: str, slice: Slice = "conf") -> ConfHandle[Any]:
         try:

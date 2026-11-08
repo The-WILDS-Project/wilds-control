@@ -154,6 +154,13 @@ class SettingsStore:
             ).fetchone()
         return row[0] if row else 0
 
+    def entry(self, component: str, version: int) -> Entry:
+        """One stored version (``KeyError`` if there is no such version)."""
+        for e in self.history(component, limit=1_000_000):
+            if e.version == version:
+                return e
+        raise UnknownVersion(f"{component} has no version {version}")
+
     def components(self) -> list[str]:
         with closing(sqlite3.connect(self.path, timeout=10)) as db:
             return [r[0] for r in db.execute("SELECT component FROM section ORDER BY component")]
