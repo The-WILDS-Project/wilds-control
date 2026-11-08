@@ -84,6 +84,21 @@ class Filing(BaseModel):
         return v
 
 
+class Store(BaseModel):
+    """The SQLite file for operational and calibration settings (plan §3.10). Deployment
+    setting: read when the store is first used."""
+
+    path: Path = Path("/var/lib/wilds/settings.db")
+
+    @field_validator("path")
+    @classmethod
+    def _absolute(cls, v: Path) -> Path:
+        v = v.expanduser()
+        if not v.is_absolute():
+            raise ValueError(f"{v} must be an absolute path")
+        return v
+
+
 OpMode = Literal["development", "production"]
 
 
@@ -98,6 +113,7 @@ class Config(BaseModel):
     site: Site = Site()
     guide_camera: GuideCameraConfig = GuideCameraConfig()
     filing: Filing = Filing()
+    store: Store = Store()
 
     @property
     def is_development(self) -> bool:

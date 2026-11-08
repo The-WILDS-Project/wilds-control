@@ -9,3 +9,7 @@ opmode = "development"  # the default; "production" refuses the /dev helpers
 [filing]
 staging_root = "~/wilds-dev/staging"
 share_root = "~/wilds-dev/share"
+
+# Operational and calibration settings, written by the app (plan §3.10): one SQLite file.
+[store]
+path = "~/wilds-dev/settings.db"
