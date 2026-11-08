@@ -284,6 +284,11 @@ class ConfRegistry:
     def slices(self, component: str) -> list[Slice]:
         return [s for c, s in sorted(self._handles) if c == component]
 
+    def versions(self) -> dict[str, int]:
+        """Every section's stored version, keyed ``component/slice``: what an open settings form
+        compares with the version it loaded, to learn the settings changed elsewhere."""
+        return {f"{c}/{s}": h.version for (c, s), h in sorted(self._handles.items())}
+
     def clear(self) -> None:
         """Forget every handle (for tests)."""
         self._handles.clear()

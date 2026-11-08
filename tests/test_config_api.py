@@ -109,3 +109,12 @@ def test_calibration_slice_starts_uncalibrated(client):
         headers=h,
     )
     assert r.status_code == 200 and r.json()["values"]["plate_scale_arcsec_px"] == 0.42
+
+
+def test_status_carries_every_sections_version(client):
+    h = hold_lease(client)
+    assert client.get("/status").json()["conf_versions"]["guide-camera/conf"] == 0
+    client.put(URL, json={"values": {"gain": 150}, "version": 0}, headers=h)
+    versions = client.get("/status").json()["conf_versions"]
+    assert versions["guide-camera/conf"] == 1 and versions["guide-camera/cal"] == 0
+

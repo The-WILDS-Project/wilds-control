@@ -15,6 +15,7 @@ from sse_starlette.sse import EventSourceResponse
 
 from .. import config
 from ..activities import registry
+from ..conf import confs
 from ..filing import FilingStatus, get_filing
 from ..guide_camera import GuideCameraStatus, get_guide_camera
 from ..jobs import Job, manager
@@ -71,6 +72,7 @@ class Status(BaseModel):
     to: ToStatus = Field(default_factory=ToStatus)
     activities: dict[str, list[ActivityStatus]] = Field(default_factory=dict)  # running only
     guide_camera: GuideCameraStatus | None = None  # settings, streaming and the cooler
+    conf_versions: dict[str, int] = Field(default_factory=dict)  # 'component/slice' -> version
     filing: FilingStatus | None = None  # staging, the data share, what waits to be delivered
     jobs: list[Job] = Field(default_factory=list)  # active, then the last few finished
     warnings: list[str] = Field(default_factory=list)
@@ -100,6 +102,7 @@ def current_status() -> Status:
             for component, infos in registry.snapshot().items()
         },
         guide_camera=get_guide_camera().status(),
+        conf_versions=confs.versions(),
         filing=filing,
         jobs=manager.snapshot(),
         warnings=config.get().warnings() + filing.warnings(),
