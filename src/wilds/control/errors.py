@@ -15,6 +15,7 @@ ErrorCode = Literal[
     "lease_required",  # 403
     "not_found",  # 404
     "busy",  # 409
+    "stale",  # 409: the settings changed since the caller loaded them
     "invalid",  # 422
     "not_calibrated",  # 409: a calibration value this needs has not been measured yet
     "refused",  # the TCS or a device said no

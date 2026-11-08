@@ -12,6 +12,7 @@ from .routers import (
     acquire_science_target,
     adc,
     camera,
+    config,
     control,
     dev,
     focus,
@@ -48,6 +49,7 @@ def create_app() -> FastAPI:
 
     app.include_router(camera.router)
     app.include_router(guide_camera.router)
+    app.include_router(config.router)
     app.include_router(status.router)
     app.include_router(control.router)
     app.include_router(jobs.router)

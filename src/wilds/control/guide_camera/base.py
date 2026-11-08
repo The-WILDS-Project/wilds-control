@@ -25,7 +25,7 @@ import numpy as np
 from pydantic import BaseModel, ConfigDict, Field, PrivateAttr
 
 from ..activities import Activities, registry
-from ..conf import ConfHandle, ConfModel, by_opmode, setting
+from ..conf import ChangeBusy, ConfHandle, ConfModel, InvalidChange, by_opmode, setting
 
 log = logging.getLogger(__name__)
 
@@ -50,11 +50,11 @@ class GuideCameraActivity(Enum):
     Cancelling = 3  # an exposure is being aborted
 
 
-class SettingError(ValueError):
+class SettingError(InvalidChange):
     """A setting or cooler request that is not acceptable (HTTP 422, ``invalid``)."""
 
 
-class CameraBusy(RuntimeError):
+class CameraBusy(ChangeBusy):
     """The camera is doing something that excludes this (HTTP 409, ``busy``)."""
 
 
