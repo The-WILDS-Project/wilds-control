@@ -3,3 +3,9 @@
 # The passphrases are in WILDS/.vault/passphrases.toml (WILDS_CONTROL_PASSPHRASES).
 
 opmode = "development"  # the default; "production" refuses the /dev helpers
+
+# Filing (plan §3.15): files are staged locally and delivered to the share. In development both
+# are folders of yours; "unplug" the share by renaming its folder, and watch files wait.
+[filing]
+staging_root = "~/wilds-dev/staging"
+share_root = "~/wilds-dev/share"
