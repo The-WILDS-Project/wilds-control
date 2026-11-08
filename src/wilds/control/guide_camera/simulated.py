@@ -152,17 +152,17 @@ class SimulatedASICamera(GuideCameraBase):
             canvas = canvas[:h2, :w2].reshape(h2 // b, b, w2 // b, b).sum(axis=(1, 3))
         return canvas
 
-    def _expose(self, s: GuideCameraConf) -> np.ndarray:
+    def _expose(self, settings: GuideCameraConf) -> np.ndarray:
         started = time.monotonic()
         try:
-            electrons = self._electrons(s)
-            b = s.binning
+            electrons = self._electrons(settings)
+            b = settings.binning
             noise = self._rng.standard_normal(electrons.shape, dtype=np.float32)
             sigma = np.sqrt(electrons + READ_NOISE**2 * b * b)
-            gain = 10 ** (s.gain / 200)  # the ASI gain unit is 0.1 dB
-            img = (electrons + sigma * noise) * gain + s.offset * 16
+            gain = 10 ** (settings.gain / 200)  # the ASI gain unit is 0.1 dB
+            img = (electrons + sigma * noise) * gain + settings.offset * 16
             # The frame is ready when the exposure is over, or when it has been drawn.
-            if self._abort.wait(max(0.0, s.exposure_s - (time.monotonic() - started))):
+            if self._abort.wait(max(0.0, settings.exposure_s - (time.monotonic() - started))):
                 raise ExposureAborted
         finally:
             self._abort.clear()
