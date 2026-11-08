@@ -66,7 +66,7 @@ class ExposureAborted(Exception):
 
 
 class Roi(ConfModel):
-    """A window in unbinned sensor pixels."""
+    """A region of interest in unbinned sensor pixels."""
 
     x: int = Field(ge=0)
     y: int = Field(ge=0)
@@ -84,10 +84,24 @@ class GuideCameraConf(ConfModel):
     gain: int = setting(
         100, label="Gain", help="In 0.1 dB steps", ge=GAIN_RANGE[0], le=GAIN_RANGE[1]
     )
-    offset: int = setting(10, label="Offset", ge=OFFSET_RANGE[0], le=OFFSET_RANGE[1])
-    binning: Literal[1, 2] = setting(1, label="Binning")
+    offset: int = setting(
+        10,
+        label="Offset",
+        help="Black level added to every pixel, so noise near zero is not clipped",
+        ge=OFFSET_RANGE[0],
+        le=OFFSET_RANGE[1],
+    )
+    binning: Literal[1, 2] = setting(
+        1,
+        label="Binning",
+        help="Pixels combined into one: 1 is none, 2 is 2×2 (more sensitive, coarser)",
+    )
     roi: Roi | None = setting(
-        None, label="Window", help="Unbinned sensor pixels; none is the whole sensor"
+        None,
+        label="ROI",
+        help="Region of interest: read out only this part of the sensor (smaller, faster frames); "
+        "x, y, width and height are in full-resolution pixels, whatever the binning. "
+        "Not set is the whole sensor",
     )
     # Start cooling at startup? Yes in development; production is to be decided (off until then).
     cooler_enabled: bool = by_opmode(
@@ -118,7 +132,7 @@ class GuideCameraCal(ConfModel):
 
 
 class SettingsUpdate(BaseModel):
-    """A partial change: only the fields sent are changed (``roi: null`` clears the window)."""
+    """A partial change: only the fields sent are changed (``roi: null`` clears the ROI)."""
 
     model_config = ConfigDict(extra="forbid")
 
