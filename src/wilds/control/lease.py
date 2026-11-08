@@ -130,7 +130,8 @@ class ControlState:
         """Drop sessions that missed their heartbeats; lapse the lease if the holder went."""
         if self.to_logged_online and not self.to_online:
             self.to_logged_online = False
-            audit.info("Telescope Operator offline (no contact)")
+            silent = self.clock() - (self.to_seen or 0.0)
+            audit.info("Telescope Operator offline (no contact for %.0f s)", silent)
         now = self.clock()
         for s in [s for s in self.sessions.values() if now - s.last_seen > SESSION_TIMEOUT_S]:
             del self.sessions[s.id]
