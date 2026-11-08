@@ -49,6 +49,16 @@ Listener = Callable[[Any, Any, list[str]], None]  # (old model, new model, keys 
 Veto = Callable[[Any, Any, list[str]], None]  # same arguments; raises to refuse the change
 
 
+class InvalidChange(ValueError):
+    """A component cannot accept these values (HTTP 422, ``invalid``): raise it from a
+    ``before_change`` hook; a component's own setting error may subclass it."""
+
+
+class ChangeBusy(RuntimeError):
+    """A component cannot take a settings change right now (HTTP 409, ``busy``). Raise it from a
+    ``before_change`` hook; a component's own busy error may subclass it."""
+
+
 class ConfModel(BaseModel):
     """Base of every settings model: frozen (a save replaces it, nothing edits it) and tolerant
     of keys a newer or older version of the model does not know."""
