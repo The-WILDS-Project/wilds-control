@@ -21,7 +21,7 @@ from pathlib import Path
 from typing import Literal
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from pydantic import BaseModel, ValidationError, field_validator
+from pydantic import BaseModel, Field, ValidationError, field_validator
 
 log = logging.getLogger(__name__)
 
@@ -62,6 +62,28 @@ class GuideCameraConfig(BaseModel):
     kind: Literal["simulated", "asi"] = "simulated"
 
 
+class Filing(BaseModel):
+    """Where data files are staged and delivered (plan §3.15). Deployment settings: read when
+    wilds-control starts, so a change needs a restart."""
+
+    staging_root: Path = Path("/var/lib/wilds/staging")  # local disk, large enough for a night
+    share_root: Path = Path("/lois/data/dct")  # the facility's data folder; never created here
+    # True in production: deliver only while share_root is a mount point. An unmounted mount
+    # point is an empty local folder, and delivering into it would fill the local disk.
+    share_is_mount: bool = False
+    sweep_interval_s: float = Field(default=30.0, gt=0)
+    probe_timeout_s: float = Field(default=2.0, gt=0)
+    disk_ceiling: float = Field(default=0.90, gt=0, le=1)  # no new files above this
+
+    @field_validator("staging_root", "share_root")
+    @classmethod
+    def _absolute(cls, v: Path) -> Path:
+        v = v.expanduser()  # "~/wilds-dev/staging" in a development config.toml
+        if not v.is_absolute():
+            raise ValueError(f"{v} must be an absolute path")
+        return v
+
+
 OpMode = Literal["development", "production"]
 
 
@@ -75,6 +97,7 @@ class Config(BaseModel):
     presence: Presence = Presence()
     site: Site = Site()
     guide_camera: GuideCameraConfig = GuideCameraConfig()
+    filing: Filing = Filing()
 
     @property
     def is_development(self) -> bool:

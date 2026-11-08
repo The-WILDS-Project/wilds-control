@@ -16,6 +16,20 @@ def passphrases_file(tmp_path, monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def fresh_filing(tmp_path, monkeypatch):
+    """Each test stages under its own folders and never touches a real share."""
+    from wilds.control import config, filing
+
+    filing.reset()
+    config_filing = config.Filing(
+        staging_root=tmp_path / "staging", share_root=tmp_path / "share", sweep_interval_s=0.05
+    )
+    monkeypatch.setattr(filing, "_default_config", lambda: config_filing)
+    yield
+    filing.reset()
+
+
+@pytest.fixture(autouse=True)
 def fresh_guide_camera():
     """Each test builds its own guide camera, from its own config."""
     from wilds.control import guide_camera
