@@ -174,14 +174,14 @@ class GuideCameraBase(BaseModel, abc.ABC):
 
     _seq: int = PrivateAttr(default=0)
     _latest: Frame | None = PrivateAttr(default=None)
-    _frames: "OrderedDict[int, Frame]" = PrivateAttr(default_factory=OrderedDict)
-    _subscribers: "set[asyncio.Queue[Frame]]" = PrivateAttr(default_factory=set)
+    _frames: OrderedDict[int, Frame] = PrivateAttr(default_factory=OrderedDict)
+    _subscribers: set[asyncio.Queue[Frame]] = PrivateAttr(default_factory=set)
     _exposing: bool = PrivateAttr(default=False)
     _streaming: bool = PrivateAttr(default=False)
-    _stream_task: "asyncio.Task[None] | None" = PrivateAttr(default=None)
+    _stream_task: asyncio.Task[None] | None = PrivateAttr(default=None)
     _cooler_enabled: bool = PrivateAttr(default=False)
     _setpoint_c: float | None = PrivateAttr(default=None)
-    _cooler_cache: "tuple[float, Cooler] | None" = PrivateAttr(default=None)
+    _cooler_cache: tuple[float, Cooler] | None = PrivateAttr(default=None)
 
     # -- hardware hooks -----------------------------------------------------------------
 
@@ -314,14 +314,14 @@ class GuideCameraBase(BaseModel, abc.ABC):
     def streaming(self) -> bool:
         return self._streaming
 
-    def subscribe(self) -> "asyncio.Queue[Frame]":
+    def subscribe(self) -> asyncio.Queue[Frame]:
         """A queue that always holds the newest frame only: a slow viewer skips frames, it
         never builds a backlog and never slows the camera."""
         q: asyncio.Queue[Frame] = asyncio.Queue(maxsize=1)
         self._subscribers.add(q)
         return q
 
-    def unsubscribe(self, q: "asyncio.Queue[Frame]") -> None:
+    def unsubscribe(self, q: asyncio.Queue[Frame]) -> None:
         self._subscribers.discard(q)
 
     def _publish(self, frame: Frame) -> None:

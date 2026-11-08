@@ -78,7 +78,7 @@ def _now_ms() -> int:
 class JobContext:
     """What a runner is given: progress, cancellation and activities."""
 
-    def __init__(self, manager: "JobManager", job: Job):
+    def __init__(self, manager: JobManager, job: Job):
         self._manager = manager
         self.job = job
         self._cancel = asyncio.Event()
