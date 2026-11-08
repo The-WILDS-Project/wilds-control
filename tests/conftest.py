@@ -33,12 +33,15 @@ def fresh_filing(tmp_path, monkeypatch):
 def fresh_settings_store(tmp_path, monkeypatch):
     """Each test has its own settings database."""
     from wilds.control import config, settings_store
+    from wilds.control.conf import confs
 
     settings_store.reset()
+    confs.clear()
     cfg = config.Store(path=tmp_path / "state" / "settings.db")
     monkeypatch.setattr(settings_store, "_default_path", lambda: cfg.path)
     yield
     settings_store.reset()
+    confs.clear()
 
 
 @pytest.fixture(autouse=True)

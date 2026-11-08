@@ -20,15 +20,15 @@ from ..guide_camera import (
     CoolerRequest,
     ExposureAborted,
     GuideCameraBase,
+    GuideCameraConf,
     GuideCameraStatus,
     SettingError,
-    Settings,
     SettingsUpdate,
     get_guide_camera,
 )
 from ..guide_camera.base import COMPONENT
 from ..jobs import Job, JobCancelled, JobContext, StartedBy, manager
-from .control import Me, require_lease
+from .control import Me, holder_who, require_lease
 
 router = APIRouter(prefix="/guide-camera", tags=["guide-camera"])
 
@@ -49,17 +49,22 @@ async def get_camera(camera: Camera) -> GuideCameraStatus:
     return camera.status()
 
 
-@router.get("/settings", response_model=Settings)
-async def get_settings(camera: Camera) -> Settings:
-    return camera.settings
+@router.get("/settings", response_model=GuideCameraConf)
+async def get_settings(camera: Camera) -> GuideCameraConf:
+    return camera.conf.current
 
 
-@router.put("/settings", response_model=Settings, dependencies=[NeedsLease])
-async def put_settings(update: SettingsUpdate, camera: Camera) -> Settings:
+@router.put("/settings", response_model=GuideCameraConf, dependencies=[NeedsLease])
+async def put_settings(update: SettingsUpdate, camera: Camera) -> GuideCameraConf:
+    """Change some operational settings (recorded under the holder's name). A value outside
+    its limits or a window outside the sensor is refused with 422 and nothing changes."""
     try:
-        return camera.update_settings(update)
+        await asyncio.to_thread(
+            camera.conf.patch, update.model_dump(exclude_unset=True), who=holder_who()
+        )
     except SettingError as e:
         raise _invalid(e) from e
+    return camera.conf.current
 
 
 @router.get("/cooler", response_model=Cooler)
@@ -69,10 +74,20 @@ async def get_cooler(camera: Camera) -> Cooler:
 
 @router.put("/cooler", response_model=Cooler, dependencies=[NeedsLease])
 async def put_cooler(request: CoolerRequest, camera: Camera) -> Cooler:
+    """Switch the cooler and/or change its setpoint; kept as a setting, so a restart restores it."""
+    changes = {
+        key: value
+        for key, value in (
+            ("cooler_enabled", request.enabled),
+            ("cooler_setpoint_c", request.setpoint_c),
+        )
+        if value is not None
+    }
     try:
-        return await asyncio.to_thread(camera.set_cooler, request)
+        await asyncio.to_thread(camera.conf.patch, changes, who=holder_who())
     except SettingError as e:
         raise _invalid(e) from e
+    return camera.cooler()
 
 
 @router.post("/start", response_model=GuideCameraStatus, dependencies=[NeedsLease])
@@ -91,7 +106,7 @@ async def stop(camera: Camera) -> GuideCameraStatus:
 
 
 async def _snap(ctx: JobContext, camera: GuideCameraBase) -> dict[str, int]:
-    ctx.progress(message=f"exposing {camera.settings.exposure_s:g} s")
+    ctx.progress(message=f"exposing {camera.conf.current.exposure_s:g} s")
     task = asyncio.create_task(camera.single_frame())
     try:
         while not (await asyncio.wait({task}, timeout=0.1))[0]:

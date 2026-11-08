@@ -1,6 +1,7 @@
 """The guide camera: an abstract base, a simulator, and the one instance the app uses."""
 
 from .. import config
+from ..conf import confs
 from .asi import ASICamera
 from .base import (
     CameraBusy,
@@ -11,9 +12,10 @@ from .base import (
     FrameMeta,
     GuideCameraActivity,
     GuideCameraBase,
+    GuideCameraCal,
+    GuideCameraConf,
     GuideCameraStatus,
     SettingError,
-    Settings,
     SettingsUpdate,
 )
 from .simulated import SimulatedASICamera
@@ -28,9 +30,10 @@ __all__ = [
     "FrameMeta",
     "GuideCameraActivity",
     "GuideCameraBase",
+    "GuideCameraCal",
+    "GuideCameraConf",
     "GuideCameraStatus",
     "SettingError",
-    "Settings",
     "SettingsUpdate",
     "SimulatedASICamera",
     "close_guide_camera",
@@ -48,7 +51,11 @@ def get_guide_camera() -> GuideCameraBase:
     global _camera
     if _camera is None:
         kind = config.get().guide_camera.kind
-        _camera = ASICamera() if kind == "asi" else SimulatedASICamera()
+        camera = ASICamera() if kind == "asi" else SimulatedASICamera()
+        confs.add(camera.conf)  # for the /config endpoints
+        confs.add(camera.cal)
+        camera.apply_conf()  # the stored (or default) settings go onto the hardware
+        _camera = camera
     return _camera
 
 

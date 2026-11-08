@@ -8,12 +8,12 @@ from wilds.control import guide_camera, lease
 from wilds.control.activities import registry
 from wilds.control.app import create_app
 from wilds.control.guide_camera import (
-    CoolerRequest,
     SettingError,
-    SettingsUpdate,
     SimulatedASICamera,
 )
-from wilds.control.jobs import manager
+from wilds.control.jobs import StartedBy, manager
+
+ARIE = StartedBy(name="Arie", code="K7-42")
 
 
 class Clock:
@@ -68,8 +68,11 @@ def test_status_carries_the_camera_with_its_settings_and_cooler(client):
     cam = client.get("/status").json()["guide_camera"]
     assert cam["kind"] == "simulated" and cam["streaming"] is False
     assert cam["settings"]["binning"] == 1 and cam["settings"]["roi"] is None
-    assert cam["cooler"]["supported"] is True and cam["cooler"]["state"] == "off"
-    assert cam["cooler"]["temperature_c"] == 20.0
+    assert cam["cooler"]["supported"] is True
+    assert cam["conf_version"] == 0 and cam["cal_version"] == 0  # nothing saved: the defaults
+    # In development the cooler starts on (the default); production is off until decided.
+    assert cam["settings"]["cooler_enabled"] is True and cam["cooler"]["state"] == "cooling"
+    assert cam["cooler"]["setpoint_c"] == -10.0
 
 
 def test_a_partial_settings_update_changes_only_what_was_sent(client):
@@ -145,13 +148,15 @@ def test_a_setpoint_outside_the_range_is_refused(client, setpoint):
     h = hold_lease(client)
     r = client.put("/guide-camera/cooler", json={"setpoint_c": setpoint}, headers=h)
     assert r.status_code == 422 and r.json()["code"] == "invalid"
-    assert client.get("/guide-camera/cooler").json()["enabled"] is False
+    cooler = client.get("/guide-camera/cooler").json()
+    assert cooler["setpoint_c"] == -10.0 and cooler["enabled"] is True  # untouched
+    assert guide_camera.get_guide_camera().conf.version == 0  # and nothing was recorded
 
 
 def test_the_sensor_follows_the_setpoint_and_settles_within_the_tolerance():
     clock = Clock()
     cam = SimulatedASICamera(clock=clock)
-    cam.set_cooler(CoolerRequest(enabled=True, setpoint_c=-10))
+    cam.apply_conf()  # the app does this at startup: the default is on, at -10 °C
     assert cam.cooler().state == "cooling"
     clock.now += 45  # one time constant: about 63 % of the way
     mid = cam.cooler()
@@ -164,7 +169,7 @@ def test_the_sensor_follows_the_setpoint_and_settles_within_the_tolerance():
 def test_the_sensor_cannot_go_further_below_ambient_than_the_cooler_can():
     clock = Clock()
     cam = SimulatedASICamera(clock=clock, ambient_c=20.0)
-    cam.set_cooler(CoolerRequest(enabled=True, setpoint_c=-40))
+    cam.conf.patch({"cooler_enabled": True, "cooler_setpoint_c": -40}, who=ARIE)
     clock.now += 3000
     assert cam.cooler().temperature_c == pytest.approx(-15.0, abs=0.2)
     assert cam.cooler().state == "cooling"  # never reaches a setpoint it cannot hold
@@ -173,9 +178,9 @@ def test_the_sensor_cannot_go_further_below_ambient_than_the_cooler_can():
 def test_switched_off_the_sensor_drifts_back_to_ambient():
     clock = Clock()
     cam = SimulatedASICamera(clock=clock)
-    cam.set_cooler(CoolerRequest(enabled=True, setpoint_c=-10))
+    cam.apply_conf()
     clock.now += 600
-    cam.set_cooler(CoolerRequest(enabled=False))
+    cam.conf.patch({"cooler_enabled": False}, who=ARIE)
     assert cam.cooler().state == "off" and cam.cooler().power_pct == 0.0
     clock.now += 600
     assert cam.cooler().temperature_c == pytest.approx(20.0, abs=0.2)
@@ -198,9 +203,9 @@ def test_the_hardware_is_read_at_most_once_a_second():
 def test_a_colder_sensor_gives_a_cleaner_dark_frame():
     clock = Clock()
     cam = SimulatedASICamera(clock=clock)
-    cam.update_settings(SettingsUpdate(exposure_s=0.5, gain=300))
+    cam.conf.patch(dict(exposure_s=0.5, gain=300), who=ARIE)  # noqa: C408
     warm = cam._expose(cam.settings).mean()
-    cam.set_cooler(CoolerRequest(enabled=True, setpoint_c=-15))
+    cam.conf.patch({"cooler_enabled": True, "cooler_setpoint_c": -15}, who=ARIE)
     clock.now += 600
     cold = cam._expose(cam.settings).mean()
     assert cold < warm - 1  # about 6 counts at this exposure and gain, noise is ~0.05
@@ -214,7 +219,8 @@ def test_a_camera_without_a_cooler_refuses_cooler_requests():
     assert cam.cooler().supported is False and cam.cooler().state == "unsupported"
     assert cam.cooler().temperature_c == 20.0
     with pytest.raises(SettingError):
-        cam.set_cooler(CoolerRequest(enabled=True))
+        cam.conf.patch({"cooler_setpoint_c": -20}, who=ARIE)
+    assert cam.conf.version == 0
 
 
 # -- frames ---------------------------------------------------------------------------
@@ -315,7 +321,7 @@ def test_a_subscriber_holds_only_the_newest_frame():
 
     async def go():
         q = cam.subscribe()
-        cam.update_settings(SettingsUpdate(exposure_s=0.01))
+        cam.conf.patch(dict(exposure_s=0.01), who=ARIE)  # noqa: C408
         ids = [(await cam.single_frame()).meta.id for _ in range(3)]
         assert q.qsize() == 1 and (await q.get()).meta.id == ids[-1]
 
@@ -336,7 +342,7 @@ def test_config_picks_the_implementation(client, config_file):
 def still_camera(**kw) -> SimulatedASICamera:
     """No jitter and no drift: the only motion is what a test asks for."""
     cam = SimulatedASICamera(jitter_px=0.0, drift_x_px_s=0.0, drift_y_px_s=0.0, **kw)
-    cam.update_settings(SettingsUpdate(exposure_s=0.001))
+    cam.conf.patch(dict(exposure_s=0.001), who=ARIE)  # noqa: C408
     return cam
 
 
@@ -389,7 +395,7 @@ def test_the_seeing_changes_a_little_from_frame_to_frame():
 
 def test_a_frame_takes_its_exposure_time_and_no_less():
     cam = SimulatedASICamera()
-    cam.update_settings(SettingsUpdate(exposure_s=0.3))
+    cam.conf.patch(dict(exposure_s=0.3), who=ARIE)  # noqa: C408
     start = time.monotonic()
     cam._expose(cam.settings)
     assert 0.3 <= time.monotonic() - start < 0.6
@@ -397,7 +403,7 @@ def test_a_frame_takes_its_exposure_time_and_no_less():
 
 def test_the_shortest_exposures_give_video_rates():
     cam = SimulatedASICamera()
-    cam.update_settings(SettingsUpdate(exposure_s=0.001))
+    cam.conf.patch(dict(exposure_s=0.001), who=ARIE)  # noqa: C408
     cam._expose(cam.settings)
     start = time.monotonic()
     for _ in range(10):
@@ -408,6 +414,94 @@ def test_the_shortest_exposures_give_video_rates():
 def test_binning_sums_the_light_and_a_small_roi_draws_less():
     cam = still_camera()
     whole = cam._electrons(cam.settings)
-    cam.update_settings(SettingsUpdate(binning=2))
+    cam.conf.patch(dict(binning=2), who=ARIE)  # noqa: C408
     binned = cam._electrons(cam.settings)
     assert binned.shape == (441, 648) and binned.sum() == pytest.approx(whole.sum(), rel=0.02)
+
+
+# -- the settings are kept, and the camera starts with them ---------------------------------
+
+
+def test_a_settings_change_is_recorded_under_the_holders_name_and_survives_a_restart(client):
+    h = hold_lease(client)
+    assert client.put("/guide-camera/settings", json={"gain": 250}, headers=h).status_code == 200
+    conf = guide_camera.get_guide_camera().conf
+    assert conf.version == 1
+    entry = conf.history()[0]
+    assert entry.who == "Arie" and "gain" in entry.changed and entry.values["gain"] == 250
+    assert client.get("/status").json()["guide_camera"]["conf_version"] == 1
+
+    guide_camera.reset()  # a restart: a new camera loads what the store holds
+    assert guide_camera.get_guide_camera().conf.current.gain == 250
+    assert client.get("/guide-camera/settings").json()["gain"] == 250
+
+
+def test_the_cooler_choice_is_kept_and_put_back_on_the_hardware_at_startup(client):
+    h = hold_lease(client)
+    client.put("/guide-camera/cooler", json={"enabled": False, "setpoint_c": -15}, headers=h)
+    guide_camera.reset()
+    cam = guide_camera.get_guide_camera()
+    assert cam.conf.current.cooler_enabled is False and cam.conf.current.cooler_setpoint_c == -15
+    assert cam.cooler().state == "off" and cam.cooler().setpoint_c == -15
+
+
+def test_in_production_the_cooler_starts_off_until_someone_switches_it_on(config_file):
+    config_file('opmode = "production"\n')
+    cam = guide_camera.get_guide_camera()
+    assert cam.conf.current.cooler_enabled is False and cam.cooler().state == "off"
+
+
+def test_a_window_outside_the_sensor_is_refused_before_anything_is_recorded(client):
+    h = hold_lease(client)
+    roi = {"x": 1200, "y": 0, "width": 200, "height": 100}
+    assert client.put("/guide-camera/settings", json={"roi": roi}, headers=h).status_code == 422
+    assert guide_camera.get_guide_camera().conf.version == 0
+
+
+def test_a_cooler_that_fails_to_switch_is_not_recorded_as_switched(client, monkeypatch):
+    h = hold_lease(client)
+    cam = guide_camera.get_guide_camera()
+
+    def broken(enabled, setpoint_c):
+        raise OSError("the camera does not answer")
+
+    monkeypatch.setattr(cam, "_write_cooler", broken)
+    with pytest.raises(OSError, match="does not answer"):
+        client.put("/guide-camera/cooler", json={"enabled": False}, headers=h)
+    assert cam.conf.version == 0 and cam.conf.current.cooler_enabled is True  # store == device
+
+
+def test_calibration_values_start_unset_and_a_procedure_that_needs_one_is_refused(client):
+    cam = guide_camera.get_guide_camera()
+    assert cam.cal.current.plate_scale_arcsec_px is None and cam.cal.version == 0
+    from wilds.control.errors import ApiError
+
+    with pytest.raises(ApiError) as e:
+        cam.cal.require("plate_scale_arcsec_px")
+    assert e.value.body.code == "not_calibrated" and e.value.status == 409
+    cam.cal.save(
+        type(cam.cal.current)(plate_scale_arcsec_px=0.304),
+        who=StartedBy(name="Noa", code="B2-07"),
+        reason="astrometry on M13",
+    )
+    assert cam.cal.require("plate_scale_arcsec_px") == 0.304
+    assert client.get("/status").json()["guide_camera"]["cal_version"] == 1
+
+
+def test_the_handles_are_in_the_registry_for_the_config_endpoints(client):
+    from wilds.control.conf import confs
+
+    assert confs.components() == ["guide-camera"] and confs.slices("guide-camera") == [
+        "cal",
+        "conf",
+    ]
+    assert confs.get("guide-camera").schema()["properties"]["cooler_setpoint_c"]["unit"] == "°C"
+
+
+def test_the_models_describe_their_fields_for_the_gui(client):
+    props = guide_camera.GuideCameraConf.model_json_schema()["properties"]
+    assert props["exposure_s"]["unit"] == "s" and props["exposure_s"]["minimum"] == 0.001
+    assert (
+        props["cooler_setpoint_c"]["minimum"] == -40 and props["cooler_setpoint_c"]["maximum"] == 30
+    )
+    assert props["cooler_enabled"]["title"] == "Cooler"

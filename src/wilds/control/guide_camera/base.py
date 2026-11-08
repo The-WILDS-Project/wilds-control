@@ -1,6 +1,7 @@
 """The guide camera's abstract base (plan §3.8, conventions memory).
 
-The base holds everything shared: settings and their validation, the cooler and its status,
+The base holds everything shared: its two settings slices (``conf``, operational, and ``cal``,
+calibration, plan §3.10) and the cooler and its status,
 the latest frame and its fan-out to viewers, frame numbering and JPEG encoding, streaming,
 and the activities. A subclass supplies only the hardware hooks (``_expose``, the temperature
 and cooler calls), so the simulator exercises all the shared code too.
@@ -21,9 +22,10 @@ from enum import Enum
 from typing import ClassVar, Literal
 
 import numpy as np
-from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, PrivateAttr
 
 from ..activities import Activities, registry
+from ..conf import ConfHandle, ConfModel, by_opmode, setting
 
 log = logging.getLogger(__name__)
 
@@ -63,7 +65,7 @@ class ExposureAborted(Exception):
 # -- models -----------------------------------------------------------------------------
 
 
-class Roi(BaseModel):
+class Roi(ConfModel):
     """A window in unbinned sensor pixels."""
 
     x: int = Field(ge=0)
@@ -72,12 +74,47 @@ class Roi(BaseModel):
     height: int = Field(ge=MIN_ROI_PIXELS)
 
 
-class Settings(BaseModel):
-    exposure_s: float = Field(default=0.5, ge=EXPOSURE_RANGE_S[0], le=EXPOSURE_RANGE_S[1])
-    gain: int = Field(default=100, ge=GAIN_RANGE[0], le=GAIN_RANGE[1])
-    offset: int = Field(default=10, ge=OFFSET_RANGE[0], le=OFFSET_RANGE[1])
-    binning: Literal[1, 2] = 1
-    roi: Roi | None = None  # None: the whole sensor
+class GuideCameraConf(ConfModel):
+    """The operational settings (``camera.conf``): the control holder may change them. They
+    are kept in the settings store; these are the defaults of a camera nobody has set up."""
+
+    exposure_s: float = setting(
+        0.5, unit="s", label="Exposure", ge=EXPOSURE_RANGE_S[0], le=EXPOSURE_RANGE_S[1]
+    )
+    gain: int = setting(
+        100, label="Gain", help="In 0.1 dB steps", ge=GAIN_RANGE[0], le=GAIN_RANGE[1]
+    )
+    offset: int = setting(10, label="Offset", ge=OFFSET_RANGE[0], le=OFFSET_RANGE[1])
+    binning: Literal[1, 2] = setting(1, label="Binning")
+    roi: Roi | None = setting(
+        None, label="Window", help="Unbinned sensor pixels; none is the whole sensor"
+    )
+    # Start cooling at startup? Yes in development; production is to be decided (off until then).
+    cooler_enabled: bool = by_opmode(
+        development=True, production=False, label="Cooler", help="Cool the sensor to the setpoint"
+    )
+    cooler_setpoint_c: float = setting(
+        DEFAULT_SETPOINT_C,
+        unit="°C",
+        label="Cooler setpoint",
+        ge=COOLER_RANGE_C[0],
+        le=COOLER_RANGE_C[1],
+    )
+
+
+class GuideCameraCal(ConfModel):
+    """The calibration values (``camera.cal``): the holder in engineering mode may change them.
+    None until measured; a procedure that needs one calls ``camera.cal.require(...)``."""
+
+    plate_scale_arcsec_px: float | None = setting(None, unit="arcsec/px", label="Plate scale", gt=0)
+    slit_pixel_x: float | None = setting(None, unit="px", label="Slit pixel x")
+    slit_pixel_y: float | None = setting(None, unit="px", label="Slit pixel y")
+    orientation_deg: float | None = setting(
+        None, unit="°", label="Orientation", help="Position angle of sky north in the image"
+    )
+    parity: Literal[1, -1] | None = setting(
+        None, label="Parity", help="-1 if the image is mirrored"
+    )
 
 
 class SettingsUpdate(BaseModel):
@@ -132,7 +169,9 @@ class GuideCameraStatus(BaseModel):
     kind: str
     streaming: bool = False
     exposing: bool = False
-    settings: Settings
+    settings: GuideCameraConf
+    conf_version: int = 0  # the stored version of the settings (0: nothing saved yet)
+    cal_version: int = 0
     cooler: Cooler
     last_frame_id: int | None = None
 
@@ -169,7 +208,6 @@ class GuideCameraBase(BaseModel, abc.ABC):
     kind: ClassVar[str]
     cooler_supported: ClassVar[bool] = True
 
-    settings: Settings = Field(default_factory=Settings)
     clock: Callable[[], float] = Field(default=time.monotonic, exclude=True)
 
     _seq: int = PrivateAttr(default=0)
@@ -179,8 +217,8 @@ class GuideCameraBase(BaseModel, abc.ABC):
     _exposing: bool = PrivateAttr(default=False)
     _streaming: bool = PrivateAttr(default=False)
     _stream_task: asyncio.Task[None] | None = PrivateAttr(default=None)
-    _cooler_enabled: bool = PrivateAttr(default=False)
-    _setpoint_c: float | None = PrivateAttr(default=None)
+    _conf: ConfHandle[GuideCameraConf] = PrivateAttr()
+    _cal: ConfHandle[GuideCameraCal] = PrivateAttr()
     _cooler_cache: tuple[float, Cooler] | None = PrivateAttr(default=None)
 
     # -- hardware hooks -----------------------------------------------------------------
@@ -191,7 +229,7 @@ class GuideCameraBase(BaseModel, abc.ABC):
         """(width, height) of the whole sensor in pixels, unbinned."""
 
     @abc.abstractmethod
-    def _expose(self, settings: Settings) -> np.ndarray:
+    def _expose(self, settings: GuideCameraConf) -> np.ndarray:
         """Take one exposure (blocking); a uint16 image after ROI and binning. Raise
         :class:`ExposureAborted` if :meth:`_abort_exposure` cut it short."""
 
@@ -226,20 +264,50 @@ class GuideCameraBase(BaseModel, abc.ABC):
 
     # -- settings -----------------------------------------------------------------------
 
-    def update_settings(self, update: SettingsUpdate) -> Settings:
-        """Apply a partial change, validated as a whole; nothing changes if it is refused."""
-        merged = {**self.settings.model_dump(), **update.model_dump(exclude_unset=True)}
-        try:
-            new = Settings.model_validate(merged)
-        except ValidationError as e:
-            first = e.errors()[0]
-            where = ".".join(str(p) for p in first["loc"])
-            raise SettingError(f"{where}: {first['msg']}") from e
-        self._check_roi(new)
-        self.settings = new
-        return new
+    def model_post_init(self, __context) -> None:
+        self._conf = ConfHandle(COMPONENT, "conf", GuideCameraConf)
+        self._cal = ConfHandle(COMPONENT, "cal", GuideCameraCal)
+        self._conf.before_change(self._accept)
 
-    def _check_roi(self, s: Settings) -> None:
+    @property
+    def conf(self) -> ConfHandle[GuideCameraConf]:
+        """The operational settings: ``camera.conf.current``, ``.snapshot()``, ``.patch(...)``."""
+        return self._conf
+
+    @property
+    def cal(self) -> ConfHandle[GuideCameraCal]:
+        """The calibration values; ``camera.cal.require("plate_scale_arcsec_px")``."""
+        return self._cal
+
+    @property
+    def settings(self) -> GuideCameraConf:
+        """The settings as they are now (a frozen snapshot)."""
+        return self._conf.current
+
+    def apply_conf(self) -> None:
+        """Put the stored (or default) settings on the hardware: once at startup."""
+        c = self._conf.current
+        self._check_roi(c)
+        if self.cooler_supported:
+            self._write_cooler(c.cooler_enabled, c.cooler_setpoint_c)
+        self._cooler_cache = None
+
+    def _accept(self, old: GuideCameraConf, new: GuideCameraConf, changed: list[str]) -> None:
+        """Before a change is recorded: refuse what this camera cannot take, and put a cooler
+        change on the hardware, so a failed write is never recorded as the setting."""
+        self._check_roi(new)
+        if "cooler_enabled" in changed or "cooler_setpoint_c" in changed:
+            if not self.cooler_supported:
+                raise SettingError("this camera has no cooler")
+            self._write_cooler(new.cooler_enabled, new.cooler_setpoint_c)
+            self._cooler_cache = None
+            log.info(
+                "cooler %s, setpoint %.1f °C",
+                "on" if new.cooler_enabled else "off",
+                new.cooler_setpoint_c,
+            )
+
+    def _check_roi(self, s: GuideCameraConf) -> None:
         if s.roi is None:
             return
         width, height = self.sensor_size
@@ -262,7 +330,8 @@ class GuideCameraBase(BaseModel, abc.ABC):
         temp = self._read_temperature()
         if not self.cooler_supported:
             return Cooler(supported=False, temperature_c=temp, state="unsupported")
-        enabled, setpoint = self._cooler_enabled, self._setpoint_c
+        c = self._conf.current
+        enabled, setpoint = c.cooler_enabled, c.cooler_setpoint_c
         if not enabled:
             state: CoolerState = "off"
         elif setpoint is not None and abs(temp - setpoint) <= AT_SETPOINT_TOL_C:
@@ -277,24 +346,6 @@ class GuideCameraBase(BaseModel, abc.ABC):
             power_pct=round(self._read_cooler_power(), 1) if enabled else 0.0,
             state=state,
         )
-
-    def set_cooler(self, request: CoolerRequest) -> Cooler:
-        """Switch the cooler on or off and/or change the target. Turning it on without a
-        setpoint uses the last one, or :data:`DEFAULT_SETPOINT_C`."""
-        if not self.cooler_supported:
-            raise SettingError("this camera has no cooler")
-        lo, hi = COOLER_RANGE_C
-        if request.setpoint_c is not None and not lo <= request.setpoint_c <= hi:
-            raise SettingError(f"setpoint_c: must be between {lo:g} and {hi:g} °C")
-        enabled = self._cooler_enabled if request.enabled is None else request.enabled
-        setpoint = request.setpoint_c
-        if setpoint is None:
-            setpoint = self._setpoint_c if self._setpoint_c is not None else DEFAULT_SETPOINT_C
-        self._write_cooler(enabled, setpoint)
-        self._cooler_enabled, self._setpoint_c = enabled, setpoint
-        self._cooler_cache = None
-        log.info("cooler %s, setpoint %.1f °C", "on" if enabled else "off", setpoint)
-        return self.cooler()
 
     # -- frames -------------------------------------------------------------------------
 
@@ -344,7 +395,7 @@ class GuideCameraBase(BaseModel, abc.ABC):
     async def _take(self) -> Frame:
         if self._exposing:
             raise CameraBusy("the guide camera is already exposing")
-        s = self.settings.model_copy(deep=True)
+        s = self._conf.snapshot()
         self._exposing = True
         self.activities.start(GuideCameraActivity.Exposing, details=[f"{s.exposure_s:g} s"])
         try:
@@ -364,7 +415,7 @@ class GuideCameraBase(BaseModel, abc.ABC):
                 self.activities.start(GuideCameraActivity.Cancelling)
             self._abort_exposure()
 
-    def _make_frame(self, pixels: np.ndarray, s: Settings) -> Frame:
+    def _make_frame(self, pixels: np.ndarray, s: GuideCameraConf) -> Frame:
         self._seq += 1
         h, w = pixels.shape
         meta = FrameMeta(
@@ -423,7 +474,9 @@ class GuideCameraBase(BaseModel, abc.ABC):
             kind=self.kind,
             streaming=self._streaming,
             exposing=self._exposing,
-            settings=self.settings,
+            settings=self._conf.current,
+            conf_version=self._conf.version,
+            cal_version=self._cal.version,
             cooler=self.cooler(),
             last_frame_id=self._latest.meta.id if self._latest else None,
         )

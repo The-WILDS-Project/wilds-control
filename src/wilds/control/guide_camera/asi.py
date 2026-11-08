@@ -10,7 +10,7 @@ from typing import ClassVar, NoReturn
 
 import numpy as np
 
-from .base import GuideCameraBase, Settings
+from .base import GuideCameraBase, GuideCameraConf
 
 _MSG = 'the ZWO ASI SDK wrapper is not written yet; use [guide_camera] kind = "simulated"'
 
@@ -25,7 +25,7 @@ class ASICamera(GuideCameraBase):
     def sensor_size(self) -> tuple[int, int]:
         raise NotImplementedError(_MSG)
 
-    def _expose(self, settings: Settings) -> np.ndarray:
+    def _expose(self, settings: GuideCameraConf) -> np.ndarray:
         raise NotImplementedError(_MSG)
 
     def _abort_exposure(self) -> None:
