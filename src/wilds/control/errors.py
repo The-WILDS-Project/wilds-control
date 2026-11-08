@@ -16,6 +16,7 @@ ErrorCode = Literal[
     "not_found",  # 404
     "busy",  # 409
     "invalid",  # 422
+    "not_calibrated",  # 409: a calibration value this needs has not been measured yet
     "refused",  # the TCS or a device said no
     "timeout",
     "cancelled",
