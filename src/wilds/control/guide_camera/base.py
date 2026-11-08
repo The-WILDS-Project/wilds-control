@@ -66,7 +66,7 @@ class ExposureAborted(Exception):
 
 
 class Roi(ConfModel):
-    """A window in unbinned sensor pixels."""
+    """A region of interest in unbinned sensor pixels."""
 
     x: int = Field(ge=0)
     y: int = Field(ge=0)
@@ -98,8 +98,8 @@ class GuideCameraConf(ConfModel):
     )
     roi: Roi | None = setting(
         None,
-        label="Window",
-        help="Read out only this part of the sensor (smaller, faster frames); "
+        label="ROI",
+        help="Region of interest: read out only this part of the sensor (smaller, faster frames); "
         "x, y, width and height are in full-resolution pixels, whatever the binning. "
         "Not set is the whole sensor",
     )
@@ -132,7 +132,7 @@ class GuideCameraCal(ConfModel):
 
 
 class SettingsUpdate(BaseModel):
-    """A partial change: only the fields sent are changed (``roi: null`` clears the window)."""
+    """A partial change: only the fields sent are changed (``roi: null`` clears the ROI)."""
 
     model_config = ConfigDict(extra="forbid")
 
