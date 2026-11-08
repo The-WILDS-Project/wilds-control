@@ -122,7 +122,7 @@ def test_the_to_is_online_while_a_to_page_polls(presence, caplog):
         assert client.get("/status").json()["to"]["online"] is True
     log = [r.message for r in caplog.records]
     assert log.count("Telescope Operator online") == 2
-    assert log.count("Telescope Operator offline (no contact)") == 1
+    assert log.count("Telescope Operator offline (no contact for 61 s)") == 1
 
 
 def test_opening_the_page_without_the_passphrase_does_not_make_the_to_online(presence):
