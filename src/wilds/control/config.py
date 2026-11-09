@@ -102,6 +102,14 @@ class Store(BaseModel):
 OpMode = Literal["development", "production"]
 
 
+class Startup(BaseModel):
+    """Whether wilds-control starts the components up by itself when it boots. Unset: yes in
+    development (simulators), no in production, where a startup moves stages and heats lamps and
+    someone should choose the moment."""
+
+    autostart: bool | None = None
+
+
 class Config(BaseModel):
     # What this machine accepts: development-only helpers (the demo job) are refused in
     # production. Development is the default so a bare checkout works; a deployed
@@ -114,10 +122,16 @@ class Config(BaseModel):
     guide_camera: GuideCameraConfig = GuideCameraConfig()
     filing: Filing = Filing()
     store: Store = Store()
+    startup: Startup = Startup()
 
     @property
     def is_development(self) -> bool:
         return self.opmode == "development"
+
+    @property
+    def autostart(self) -> bool:
+        a = self.startup.autostart
+        return self.is_development if a is None else a
 
     def warnings(self) -> list[str]:
         out = []

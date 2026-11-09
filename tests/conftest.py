@@ -54,6 +54,16 @@ def fresh_guide_camera():
     guide_camera.reset()
 
 
+@pytest.fixture(autouse=True)
+def fresh_system():
+    """Each test starts with no components registered for startup and no umbrella running."""
+    from wilds.control.lifecycle import system
+
+    system.reset()
+    yield
+    system.reset()
+
+
 def _writer(path, monkeypatch, env):
     monkeypatch.setenv(env, str(path))
     version = [0]

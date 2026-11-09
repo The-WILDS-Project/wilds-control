@@ -2,6 +2,7 @@
 
 from .. import config
 from ..conf import confs
+from ..lifecycle import system
 from .asi import ASICamera
 from .base import (
     CameraBusy,
@@ -54,7 +55,7 @@ def get_guide_camera() -> GuideCameraBase:
         camera = ASICamera() if kind == "asi" else SimulatedASICamera()
         confs.add(camera.conf)  # for the /config endpoints
         confs.add(camera.cal)
-        camera.apply_conf()  # the stored (or default) settings go onto the hardware
+        system.register(camera.life)  # started up by the system (or by hand), not here
         _camera = camera
     return _camera
 

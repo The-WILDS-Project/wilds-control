@@ -126,7 +126,9 @@ async def _snap(ctx: JobContext, camera: GuideCameraBase) -> dict[str, int]:
 
 @router.post("/frames", status_code=202, response_model=Job, dependencies=[NeedsLease])
 async def take_frame(camera: Camera, me: Me) -> Job:
-    """One exposure with the current settings, as a job. ``409 busy`` while streaming."""
+    """One exposure with the current settings, as a job. ``409 busy`` while streaming and
+    ``409 not_operational`` until the camera is started up."""
+    camera.life.require_operational()
     if camera.streaming:
         raise _busy(CameraBusy("the guide camera is streaming"))
     return manager.submit(

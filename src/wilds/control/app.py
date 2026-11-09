@@ -3,16 +3,16 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from . import errors
+from . import config, errors
 from .filing import close_filing, get_filing
 from .guide_camera import close_guide_camera, get_guide_camera
 from .jobs import manager as job_manager
 from .lease import state as lease
+from .lifecycle import system
 from .routers import (
     acquire_science_target,
     adc,
     camera,
-    config,
     control,
     dev,
     focus,
@@ -22,6 +22,12 @@ from .routers import (
     slit,
     status,
 )
+from .routers import (
+    config as config_router,
+)
+from .routers import (
+    system as system_router,
+)
 
 
 @asynccontextmanager
@@ -29,6 +35,8 @@ async def lifespan(app: FastAPI):
     # TODO: initialise broker, solver
     get_guide_camera()
     get_filing().start()
+    if config.get().autostart:
+        await system.startup()
     yield
     close_filing()
     await close_guide_camera()
@@ -49,7 +57,8 @@ def create_app() -> FastAPI:
 
     app.include_router(camera.router)
     app.include_router(guide_camera.router)
-    app.include_router(config.router)
+    app.include_router(config_router.router)
+    app.include_router(system_router.router)
     app.include_router(status.router)
     app.include_router(control.router)
     app.include_router(jobs.router)
