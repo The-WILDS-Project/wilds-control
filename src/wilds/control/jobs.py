@@ -314,6 +314,10 @@ class JobManager:
 
     # -- reading ------------------------------------------------------------------------
 
+    def busy_job(self, component: str) -> str | None:
+        """The id of the running job that reserves ``component``, or ``None``."""
+        return self._busy.get(component)
+
     def get(self, job_id: str) -> Job:
         try:
             return self._jobs[job_id]

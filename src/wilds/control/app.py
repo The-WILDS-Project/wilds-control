@@ -19,6 +19,7 @@ from .routers import (
     guide_camera,
     jobs,
     lamps,
+    shutter,
     slit,
     status,
 )
@@ -28,18 +29,21 @@ from .routers import (
 from .routers import (
     system as system_router,
 )
+from .shutter import close_shutter, get_shutter
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # TODO: initialise broker, solver
     get_guide_camera()
+    get_shutter()
     get_filing().start()
     if config.get().autostart:
         await system.startup()
     yield
     close_filing()
     await close_guide_camera()
+    await close_shutter()
 
 
 def create_app() -> FastAPI:
@@ -57,6 +61,7 @@ def create_app() -> FastAPI:
 
     app.include_router(camera.router)
     app.include_router(guide_camera.router)
+    app.include_router(shutter.router)
     app.include_router(config_router.router)
     app.include_router(system_router.router)
     app.include_router(status.router)

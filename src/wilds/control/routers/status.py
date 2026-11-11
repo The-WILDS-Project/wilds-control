@@ -21,6 +21,7 @@ from ..guide_camera import GuideCameraStatus, get_guide_camera
 from ..jobs import Job, manager
 from ..lease import state as lease
 from ..lifecycle import SystemStatus, system
+from ..shutter import ShutterStatus, get_shutter
 
 router = APIRouter(prefix="/status", tags=["status"])
 
@@ -74,6 +75,7 @@ class Status(BaseModel):
     activities: dict[str, list[ActivityStatus]] = Field(default_factory=dict)  # running only
     system: SystemStatus | None = None  # every component's opstate, operational and reasons
     guide_camera: GuideCameraStatus | None = None  # settings, streaming and the cooler
+    shutter: ShutterStatus | None = None  # blade state and lifecycle
     conf_versions: dict[str, int] = Field(default_factory=dict)  # 'component/slice' -> version
     filing: FilingStatus | None = None  # staging, the data share, what waits to be delivered
     jobs: list[Job] = Field(default_factory=list)  # active, then the last few finished
@@ -105,6 +107,7 @@ def current_status() -> Status:
         },
         system=system.status(),
         guide_camera=get_guide_camera().status(),
+        shutter=get_shutter().status(),
         conf_versions=confs.versions(),
         filing=filing,
         jobs=manager.snapshot(),
