@@ -16,6 +16,7 @@ def test_status_snapshot_has_the_shape_the_gui_expects():
         "activities",
         "guide_camera",
         "shutter",
+        "light_path",
         "filing",
         "conf_versions",
         "system",

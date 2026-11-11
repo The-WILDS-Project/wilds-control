@@ -3,7 +3,7 @@
 from .. import config
 from ..conf import confs
 from ..lifecycle import system
-from ..shutter import get_shutter
+from ..light_path import get_light_path
 from .asi import ASICamera
 from .base import (
     CameraBusy,
@@ -60,7 +60,7 @@ def get_guide_camera() -> GuideCameraBase:
         camera = (
             ASICamera()
             if kind == "asi"
-            else SimulatedASICamera(light_blocked=lambda: get_shutter().state == "closed")
+            else SimulatedASICamera(light_blocked=lambda: get_light_path().blocked)
         )
         confs.add(camera.conf)  # for the /config endpoints
         confs.add(camera.cal)

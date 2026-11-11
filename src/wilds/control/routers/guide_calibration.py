@@ -1,10 +1,12 @@
 """The guide camera's dark and bias frames (plan §3.17).
 
-Taking them needs the control lease and is a job that reserves the camera and the shutter: it
-closes the shutter, takes ``count`` frames with the camera's own settings (those of the
-``single_frame`` or ``video`` group, a dark with its own exposure if asked, a bias at the shortest
-exposure), puts the shutter back as it found it, and files the frames and their median in the
-active calibration session. Sessions are time-stamped folders on the local disk; any of them
+Taking them needs the control lease and is a job that reserves the camera: it takes ``count``
+frames with the camera's own settings (those of the ``single_frame`` or ``video`` group, a dark
+with its own exposure if asked, a bias at the shortest exposure) and files the frames and their
+median in the active calibration session. A dark needs the light path blocked (the TO does that
+on request, see ``light_path``) and stops if the light comes back; a bias, at the shortest
+exposure, needs nothing. The guide camera has no shutter of its own.
+Sessions are time-stamped folders on the local disk; any of them
 can be made the active one again.
 """
 
@@ -28,14 +30,13 @@ from ..guide_camera.base import COMPONENT as CAMERA
 from ..guide_camera.base import EXPOSURE_RANGE_S, CalibrationKind, CaptureSettings
 from ..guide_camera.calibration_frames import SessionInfo, store
 from ..jobs import Job, JobCancelled, JobContext, StartedBy, manager
-from ..shutter import COMPONENT as SHUTTER
-from ..shutter import ShutterBase, ShutterBusy, get_shutter
+from ..light_path import LightPath, get_light_path
 from .control import Me, require_lease
 
 router = APIRouter(prefix="/guide-camera/calibration", tags=["guide-camera"])
 
 Camera = Annotated[GuideCameraBase, Depends(get_guide_camera)]
-Shutter = Annotated[ShutterBase, Depends(get_shutter)]
+Light = Annotated[LightPath, Depends(get_light_path)]
 NeedsLease = Depends(require_lease)
 
 
@@ -85,10 +86,22 @@ async def until_done(ctx: JobContext, camera: GuideCameraBase, task: asyncio.Tas
     return task.result()
 
 
+def _need_dark(kind: CalibrationKind, light: LightPath) -> None:
+    if kind == "dark" and not light.blocked:
+        raise ApiError(
+            409,
+            "light_not_blocked",
+            "a dark needs the light path blocked: ask the TO to block it first"
+            if light.state != "lit"
+            else "the light came back while the dark frames were being taken",
+            {"state": light.state},
+        )
+
+
 async def _run(
     ctx: JobContext,
     camera: GuideCameraBase,
-    shutter: ShutterBase,
+    light: LightPath,
     request: CalibrationRequest,
     settings: CaptureSettings,
 ) -> dict:
@@ -96,14 +109,13 @@ async def _run(
     session = cal.ensure_session()
     frames = []
     try:
-        async with shutter.closed():
-            for i in range(request.count):
-                ctx.check()
-                ctx.progress(i / request.count, f"{request.kind} {i + 1} of {request.count}")
-                task = asyncio.create_task(camera.calibration_frame(request.kind, settings))
-                frames.append(await until_done(ctx, camera, task))
-    except ShutterBusy as e:
-        raise ApiError(409, "busy", str(e), {"component": SHUTTER}) from e
+        for i in range(request.count):
+            ctx.check()
+            _need_dark(request.kind, light)
+            ctx.progress(i / request.count, f"{request.kind} {i + 1} of {request.count}")
+            task = asyncio.create_task(camera.calibration_frame(request.kind, settings))
+            frames.append(await until_done(ctx, camera, task))
+        _need_dark(request.kind, light)  # the last frame, too, was taken in the dark
     except CameraBusy as e:
         raise ApiError(409, "busy", str(e), {"component": CAMERA}) from e
     except SettingError as e:
@@ -117,13 +129,13 @@ async def _run(
 
 @router.post("/frames", status_code=202, response_model=Job, dependencies=[NeedsLease])
 async def take_calibration_frames(
-    request: CalibrationRequest, camera: Camera, shutter: Shutter, me: Me
+    request: CalibrationRequest, camera: Camera, light: Light, me: Me
 ) -> Job:
     """Dark or bias frames, as a job. ``409 busy`` while streaming or while another job has the
-    camera or the shutter, ``409 not_operational`` until both are started up, and
-    ``409 cooler_not_stable`` for a dark while the sensor is still cooling."""
+    camera, ``409 not_operational`` until it is started up, ``409 light_not_blocked`` for a dark
+    unless the TO has blocked the light path, and ``409 cooler_not_stable`` for a dark while the
+    sensor is still cooling."""
     camera.life.require_operational()
-    shutter.life.require_operational()
     if camera.streaming:
         raise ApiError(409, "busy", "the guide camera is streaming", {"component": CAMERA})
     if request.require_stable_cooler and camera.cooler().state == "cooling":
@@ -133,11 +145,12 @@ async def take_calibration_frames(
             "the sensor is still cooling to its setpoint; darks taken now would not match later "
             "ones (ask for require_stable_cooler false to take them anyway)",
         )
+    _need_dark(request.kind, light)
     settings = settings_for(request, camera)
     return manager.submit(
         f"guide-camera-{request.kind}",
-        [CAMERA, SHUTTER],
-        lambda ctx: _run(ctx, camera, shutter, request, settings),
+        [CAMERA],
+        lambda ctx: _run(ctx, camera, light, request, settings),
         started_by=StartedBy(name=me.name, code=me.code),
     )
 

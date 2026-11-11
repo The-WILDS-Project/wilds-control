@@ -75,6 +75,16 @@ def fresh_shutter():
 
 
 @pytest.fixture(autouse=True)
+def fresh_light_path():
+    """Each test starts with the light path in an unknown state."""
+    from wilds.control import light_path
+
+    light_path.reset()
+    yield
+    light_path.reset()
+
+
+@pytest.fixture(autouse=True)
 def fresh_system():
     """Each test starts with no components registered for startup and no umbrella running."""
     from wilds.control.lifecycle import system

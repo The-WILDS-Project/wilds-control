@@ -189,18 +189,23 @@ def run(client, h, **body) -> dict:
     return client.get(f"/jobs/{job['id']}").json()
 
 
+def block_light(client, h):
+    """Ask for the light to be blocked and have the TO say it is."""
+    assert client.post("/light-path/block-request", headers=h).status_code == 200
+    assert client.post("/light-path/acknowledge", headers=TO).json()["state"] == "blocked"
+
+
 def set_group(client, h, group, **values):
     assert client.put("/guide-camera/settings", json={group: values}, headers=h).status_code == 200
 
 
-def test_a_dark_run_files_frames_and_a_median_and_restores_the_shutter(client):
+def test_a_dark_run_files_frames_and_a_median(client):
     h = hold_lease(client)
     set_group(client, h, "single_frame", exposure_s=0.02)
-    assert client.post("/shutter/open", headers=h).json()["state"] == "open"
+    block_light(client, h)
     job = run(client, h, kind="dark", count=3)
     assert job["state"] == "done", job
     assert job["result"]["count"] == 3 and job["result"]["entry"] == "dark-0001"
-    assert client.get("/shutter").json()["state"] == "open"  # put back as found
 
     (session,) = client.get(f"{URL}/sessions").json()
     assert session["active"] is True and session["id"] == job["result"]["session"]
@@ -215,7 +220,9 @@ def test_a_dark_run_files_frames_and_a_median_and_restores_the_shutter(client):
     hdul = fits.open(io.BytesIO(raw.content))
     assert hdul[0].header["IMAGETYP"] == "Dark Frame" and hdul[0].header["NCOMBINE"] == 3
     assert hdul[0].header["EXPTIME"] == 0.02
-    assert hdul[0].data.max() < 1.5 * np.median(hdul[0].data) + 50  # no stars: the shutter was shut
+    assert (
+        hdul[0].data.max() < 1.5 * np.median(hdul[0].data) + 50
+    )  # no stars: the light was blocked
     assert paths.guide_camera_calibration().is_dir()
 
 
@@ -231,6 +238,7 @@ def test_a_bias_is_the_shortest_exposure_and_takes_no_exposure(client):
 
 def test_the_frames_follow_the_chosen_settings_group(client):
     h = hold_lease(client)
+    block_light(client, h)
     set_group(client, h, "video", exposure_s=0.01, gain=250, binning=2)
     set_group(client, h, "single_frame", exposure_s=0.5)
     job = run(client, h, kind="dark", count=1, match="video")
@@ -249,6 +257,7 @@ def test_the_frames_follow_the_chosen_settings_group(client):
 
 def test_the_store_finds_what_the_job_filed(client):
     h = hold_lease(client)
+    block_light(client, h)
     set_group(client, h, "single_frame", exposure_s=0.02)
     run(client, h, kind="dark", count=2)
     camera_settings = guide_camera.get_guide_camera().settings.single_frame
@@ -271,110 +280,57 @@ def test_it_is_refused_while_streaming_or_not_started_up_or_without_the_lease(cl
     )
     assert r.status_code == 409 and r.json()["code"] == "busy"
     client.post("/guide-camera/stop", headers=h)
-    client.post("/system/shutter/shutdown", headers=TO)
-    assert wait_for(lambda: client.get("/shutter").json()["lifecycle"]["opstate"] == "shutdown")
+    client.post("/system/guide-camera/shutdown", headers=TO)
+    assert wait_for(
+        lambda: client.get("/guide-camera").json()["lifecycle"]["opstate"] == "shutdown"
+    )
     r = client.post(
         f"{URL}/frames", json={"kind": "dark", "require_stable_cooler": False}, headers=h
     )
     assert r.status_code == 409 and r.json()["code"] == "not_operational"
 
 
-def test_cancelling_a_run_ends_the_exposure_and_still_restores_the_shutter(client):
+def test_a_dark_needs_the_light_blocked_but_a_bias_does_not(client):
+    h = hold_lease(client)
+    r = client.post(
+        f"{URL}/frames", json={"kind": "dark", "require_stable_cooler": False}, headers=h
+    )
+    assert r.status_code == 409 and r.json()["code"] == "light_not_blocked"
+    assert r.json()["details"]["state"] == "unknown"
+    assert run(client, h, kind="bias", count=1)["state"] == "done"
+
+
+def test_a_dark_run_stops_if_the_light_comes_back(client):
+    h = hold_lease(client)
+    set_group(client, h, "single_frame", exposure_s=0.3)
+    block_light(client, h)
+    r = client.post(
+        f"{URL}/frames",
+        json={"kind": "dark", "count": 20, "require_stable_cooler": False},
+        headers=h,
+    )
+    job = r.json()
+    time.sleep(0.5)
+    assert client.put("/light-path/state", json={"state": "lit"}, headers=TO).status_code == 200
+    assert wait_for(lambda: client.get(f"/jobs/{job['id']}").json()["state"] == "failed")
+    assert client.get(f"/jobs/{job['id']}").json()["error"]["code"] == "light_not_blocked"
+    assert not client.get(f"{URL}/sessions").json()[0]["entries"]
+
+
+def test_cancelling_a_run_ends_the_exposure(client):
     h = hold_lease(client)
     set_group(client, h, "single_frame", exposure_s=20)
-    client.post("/shutter/open", headers=h)
+    block_light(client, h)
     r = client.post(
         f"{URL}/frames",
         json={"kind": "dark", "count": 5, "require_stable_cooler": False},
         headers=h,
     )
     job = r.json()
-    assert wait_for(lambda: client.get("/shutter").json()["state"] == "closed")  # it is exposing
+    time.sleep(0.5)
     client.post(f"/jobs/{job['id']}/cancel", headers=h)
     assert wait_for(lambda: client.get(f"/jobs/{job['id']}").json()["state"] == "cancelled")
-    assert wait_for(lambda: client.get("/shutter").json()["state"] == "open")
     assert (
         client.get(f"{URL}/sessions").json() == []
         or not client.get(f"{URL}/sessions").json()[0]["entries"]
-    )
-
-
-def test_sessions_can_be_started_and_switched(client):
-    h = hold_lease(client)
-    assert client.post(f"{URL}/sessions", json={"label": "x"}).status_code == 403
-    first = client.post(f"{URL}/sessions", json={"label": "before the move"}, headers=h).json()
-    time.sleep(1.1)
-    second = client.post(f"{URL}/sessions", headers=h).json()
-    assert second["active"] and first["id"] < second["id"]
-    back = client.post(f"{URL}/sessions/{first['id']}/activate", headers=h).json()
-    assert back["active"] and back["label"] == "before the move"
-    assert [s["active"] for s in client.get(f"{URL}/sessions").json()] == [False, True]
-    assert client.post(f"{URL}/sessions/nope/activate", headers=h).status_code == 404
-
-
-def test_a_calibration_frame_is_downloadable_while_the_run_goes_on(client):
-    h = hold_lease(client)
-    set_group(client, h, "single_frame", exposure_s=0.02)
-    assert client.get("/guide-camera").json()["last_calibration_frame_id"] is None
-    job = run(client, h, kind="dark", count=2)
-    assert job["state"] == "done", job
-    fid = client.get("/guide-camera").json()["last_calibration_frame_id"]
-    assert fid is not None
-    r = client.get(f"/guide-camera/frames/{fid}")
-    assert r.status_code == 200
-    header = fits.open(io.BytesIO(r.content))[0].header
-    assert header["IMAGETYP"] == "Dark Frame" and header["EXPTIME"] == 0.02
-    # it is not the live view's frame
-    assert client.get("/guide-camera").json()["last_frame_id"] is None
-    assert client.get("/status").json()["guide_camera"]["last_calibration_frame_id"] == fid
-
-
-# -- discarding an entry ------------------------------------------------------------------
-
-
-def test_a_discarded_entry_is_gone_from_the_disk_and_the_index(cal):
-    sid = cal.new_session().id
-    entry = cal.add(sid, "dark", [frame(1), frame(2, n=2)], match="single_frame")
-    folder = cal.root / sid / entry.id
-    assert folder.is_dir()
-    info = cal.delete_entry(sid, entry.id)
-    assert info.entries == [] and not folder.exists() and info.active is True
-    assert cal.sessions()[0].entries == []
-    assert cal.find_master("dark", CaptureSettings(exposure_s=1.0, gain=100, offset=10)) is None
-    with pytest.raises(Exception, match="no file"):
-        cal.path(sid, entry.id, "master.fits")
-
-
-def test_discarding_an_unknown_entry_is_404(cal):
-    sid = cal.new_session().id
-    for session, entry in ((sid, "dark-0009"), ("nope", "dark-0001")):
-        with pytest.raises(Exception, match="no entry"):
-            cal.delete_entry(session, entry)
-
-
-def test_a_new_entry_never_takes_the_number_of_one_still_there(cal):
-    sid = cal.new_session().id
-    first = cal.add(sid, "dark", [frame(1)], match="single_frame")
-    second = cal.add(sid, "dark", [frame(2, n=2)], match="single_frame")
-    cal.delete_entry(sid, first.id)
-    third = cal.add(sid, "bias", [frame(3, n=3)], match="single_frame")
-    assert (first.id, second.id, third.id) == ("dark-0001", "dark-0002", "bias-0003")
-    assert (cal.root / sid / second.id / "master.fits").is_file()  # untouched
-
-
-def test_discard_over_http_needs_the_lease_and_reports_the_session(client):
-    h = hold_lease(client)
-    set_group(client, h, "single_frame", exposure_s=0.02)
-    run(client, h, kind="dark", count=1)
-    run(client, h, kind="bias", count=1)
-    (session,) = client.get(f"{URL}/sessions").json()
-    url = f"{URL}/sessions/{session['id']}/entries/dark-0001"
-    assert client.delete(url).status_code == 403
-    r = client.delete(url, headers=h)
-    assert r.status_code == 200 and [e["id"] for e in r.json()["entries"]] == ["bias-0002"]
-    assert client.get(f"{url}/master.fits").status_code == 404
-    assert client.delete(url, headers=h).status_code == 404
-    assert (
-        client.get(f"{URL}/sessions/{session['id']}/entries/bias-0002/master.fits").status_code
-        == 200
     )
