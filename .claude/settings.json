@@ -8,7 +8,11 @@
       "Bash(ruff format --check .)",
       "mcp__claude-vscode__getDiagnostics",
       "mcp__claude_ai_Gmail__get_thread",
-      "mcp__claude_ai_Gmail__search_threads"
+      "mcp__claude_ai_Gmail__search_threads",
+      "Bash(ruff format --check . -q)",
+      "Bash(ruff check src tests)",
+      "Bash(ruff check tests)",
+      "Bash(gh run watch *)"
     ]
   }
 }
