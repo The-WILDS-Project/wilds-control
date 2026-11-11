@@ -202,6 +202,21 @@ async def test_system_status_prefixes_each_reason_with_its_component():
     assert st.why_not_operational == ["a: not started up", "b: cold"]
 
 
+async def test_the_system_opstate_is_startedup_or_shutdown_only_when_every_component_is():
+    assert system.status().opstate == "initialized"  # nothing registered yet
+    system.register(part("a"))
+    system.register(part("b"))
+    assert system.status().opstate == "initialized"
+    await system.get("a").startup()
+    assert system.status().opstate == "initialized"  # one up, one not
+    await system.get("b").startup()
+    assert system.status().opstate == "startedup"
+    await system.get("a").shutdown()
+    assert system.status().opstate == "initialized"  # a start-up and a shutdown both change it
+    await system.get("b").shutdown()
+    assert system.status().opstate == "shutdown"
+
+
 async def test_one_component_being_busy_does_not_stop_the_others():
     a, b = part("a"), part("b")
     system.register(a)
