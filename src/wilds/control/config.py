@@ -1,10 +1,11 @@
 """The TOML configuration (plan §3.10), minimal for now: opmode and presence, and the
 passphrases, which live in a file of their own.
 
-``$WILDS_CONTROL_CONFIG``, else ``/etc/wilds/config.toml``: everything but the passphrases.
-``$WILDS_CONTROL_PASSPHRASES``, else ``/etc/wilds/passphrases.toml``: just a ``[passphrases]``
+``$WILDS_CONTROL_CONFIG``, else ``$WILDS_ROOT/etc/config.toml``: everything but the passphrases.
+``$WILDS_CONTROL_PASSPHRASES``, else ``$WILDS_ROOT/etc/passphrases.toml``: just a ``[passphrases]``
 section, so the secrets can have their own owner and mode, and stay out of anything copied
-around or committed (in development it is ``WILDS/.vault/passphrases.toml``).
+around or committed (in development it is ``WILDS/.vault/passphrases.toml``). Where everything
+else lives, and its defaults, is in ``paths.py``.
 
 Both are checked on every access and re-read when they change, so a new passphrase applies
 without a restart. An invalid file is rejected whole and the running configuration kept. A
@@ -23,10 +24,10 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from pydantic import BaseModel, Field, ValidationError, field_validator
 
+from . import paths
+
 log = logging.getLogger(__name__)
 
-DEFAULT_PATH = "/etc/wilds/config.toml"
-PASSPHRASES_DEFAULT_PATH = "/etc/wilds/passphrases.toml"
 DEFAULT_ENGINEERING_PASSPHRASE = "physics"
 
 
@@ -66,8 +67,10 @@ class Filing(BaseModel):
     """Where data files are staged and delivered (plan §3.15). Deployment settings: read when
     wilds-control starts, so a change needs a restart."""
 
-    staging_root: Path = Path("/var/lib/wilds/staging")  # local disk, large enough for a night
-    share_root: Path = Path("/lois/data/dct")  # the facility's data folder; never created here
+    # Local disk, large enough for a night; $WILDS_ROOT/var/lib/staging unless set.
+    staging_root: Path = Field(default_factory=paths.staging_root)
+    # The facility's data folder, never created here; $WILDS_LOIS_DATA_ROOT unless set.
+    share_root: Path = Field(default_factory=paths.lois_data_root)
     # True in production: deliver only while share_root is a mount point. An unmounted mount
     # point is an empty local folder, and delivering into it would fill the local disk.
     share_is_mount: bool = False
@@ -88,7 +91,7 @@ class Store(BaseModel):
     """The SQLite file for operational and calibration settings (plan §3.10). Deployment
     setting: read when the store is first used."""
 
-    path: Path = Path("/var/lib/wilds/settings.db")
+    path: Path = Field(default_factory=paths.settings_db)  # $WILDS_ROOT/var/lib/settings.db
 
     @field_validator("path")
     @classmethod
@@ -120,8 +123,8 @@ class Config(BaseModel):
     presence: Presence = Presence()
     site: Site = Site()
     guide_camera: GuideCameraConfig = GuideCameraConfig()
-    filing: Filing = Filing()
-    store: Store = Store()
+    filing: Filing = Field(default_factory=Filing)  # built per load: its paths follow the root
+    store: Store = Field(default_factory=Store)
     startup: Startup = Startup()
 
     @property
@@ -153,17 +156,22 @@ def _stat(path: Path) -> int | None:
 class _Store:
     def __init__(self) -> None:
         self._lock = threading.Lock()
-        self._key: tuple[tuple[Path, int | None], tuple[Path, int | None]] | None = None
+        self._key: tuple | None = None
         self._config = Config()
 
     def get(self) -> Config:
-        path = Path(os.environ.get("WILDS_CONTROL_CONFIG", DEFAULT_PATH))
-        secrets_path = Path(os.environ.get("WILDS_CONTROL_PASSPHRASES", PASSPHRASES_DEFAULT_PATH))
-        key = ((path, _stat(path)), (secrets_path, _stat(secrets_path)))
+        path = Path(os.environ.get("WILDS_CONTROL_CONFIG") or paths.config_file())
+        secrets_path = Path(os.environ.get("WILDS_CONTROL_PASSPHRASES") or paths.passphrases_file())
+        key = (
+            (path, _stat(path)),
+            (secrets_path, _stat(secrets_path)),
+            # the defaults of the paths derive from these, so a change must rebuild the model
+            tuple(os.environ.get(n) for n in (paths.ROOT_ENV, paths.LOIS_DATA_ROOT_ENV)),
+        )
         with self._lock:
             if self._key != key:
                 self._key = key
-                self._load(*key)
+                self._load(*key[:2])
             return self._config
 
     def _load(self, main: tuple[Path, int | None], secret: tuple[Path, int | None]) -> None:

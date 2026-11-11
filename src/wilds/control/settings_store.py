@@ -1,12 +1,12 @@
 """The store for operational and calibration settings (plan §3.10): one SQLite file.
 
 Deployment settings (broker host, device addresses, paths, opmode) are hand-edited in
-``/etc/wilds/config.toml`` and read at start (``config.py``). Everything a *procedure or the GUI*
+``$WILDS_ROOT/etc/config.toml`` and read at start (``config.py``). Everything a *procedure or the GUI*
 writes while the instrument runs lives here instead: stage presets, camera exposure and gain,
 plate scale, slit pixel, focus offset, ADC zero points. A hand-edited, root-owned file is the
 wrong home for values the application changes; and a database server (MAST uses MongoDB, for
 a fleet of units) is the wrong weight for one machine. SQLite is in the standard library, one
-file in ``/var/lib/wilds``, transactional, and needs no server to be running.
+file in ``$WILDS_ROOT/var/lib``, transactional, and needs no server to be running.
 
 **A section is one component's settings**: the JSON of its Pydantic model, versioned as a
 whole. ``put`` validates nothing itself (the model has already), records who changed it, when

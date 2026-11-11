@@ -4,6 +4,15 @@ import pytest
 
 
 @pytest.fixture(autouse=True)
+def wilds_root(tmp_path, monkeypatch):
+    """Every test has its own WILDS_ROOT, and no test touches a real /opt/wilds or data mount."""
+    root = tmp_path / "wilds-root"
+    monkeypatch.setenv("WILDS_ROOT", str(root))
+    monkeypatch.delenv("WILDS_LOIS_DATA_ROOT", raising=False)
+    return root
+
+
+@pytest.fixture(autouse=True)
 def config_file(tmp_path, monkeypatch):
     """Every test gets its own (initially absent) config.toml; call the result with TOML text."""
     return _writer(tmp_path / "config.toml", monkeypatch, "WILDS_CONTROL_CONFIG")

@@ -4,7 +4,7 @@ import threading
 import pytest
 from pydantic import BaseModel, Field
 
-from wilds.control import config
+from wilds.control import config, paths
 from wilds.control.jobs import StartedBy
 from wilds.control.settings_store import (
     SettingsConflict,
@@ -218,6 +218,7 @@ def test_the_one_store_is_made_once(tmp_path):
 
 
 def test_the_config_defaults_and_validation(config_file):
-    assert config.get().store.path.as_posix() == "/var/lib/wilds/settings.db"
+    default = config.get().store.path
+    assert default.name == "settings.db" and default.is_relative_to(paths.var_lib())
     config_file('[store]\npath = "relative.db"\n')
-    assert config.get().store.path.as_posix() == "/var/lib/wilds/settings.db"  # rejected whole
+    assert config.get().store.path == default  # rejected whole
