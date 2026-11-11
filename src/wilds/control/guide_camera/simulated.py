@@ -19,10 +19,11 @@ with the cooler off it drifts back to ambient. Time comes from the injectable ``
 import math
 import threading
 import time
+from collections.abc import Callable
 from typing import ClassVar
 
 import numpy as np
-from pydantic import PrivateAttr
+from pydantic import Field, PrivateAttr
 
 from .base import CaptureSettings, ExposureAborted, GuideCameraBase
 
@@ -48,6 +49,8 @@ class SimulatedASICamera(GuideCameraBase):
     drift_y_px_s: float = -0.01
     offset_x_px: float = 0.0  # where the telescope has been told to point, see nudge()
     offset_y_px: float = 0.0
+    # Is the light path blocked (the shutter closed)? Then only the dark current is recorded.
+    light_blocked: Callable[[], bool] = Field(default=lambda: False, exclude=True)
 
     _stars: tuple[np.ndarray, np.ndarray, np.ndarray] = PrivateAttr()  # x, y, flux (e/s)
     _drift: list[float] = PrivateAttr(default_factory=lambda: [0.0, 0.0])
@@ -128,6 +131,9 @@ class SimulatedASICamera(GuideCameraBase):
             (s.roi.x, s.roi.y, s.roi.width, s.roi.height) if s.roi else (0, 0, full_w, full_h)
         )
         dark = DARK_E_PER_S_AT_20C * 2 ** ((self._read_temperature() - 20.0) / 6.0)
+        if self.light_blocked():
+            canvas = np.full((h, w), dark * s.exposure_s, np.float32)
+            return _bin(canvas, s.binning)
         canvas = np.full((h, w), (SKY_E_PER_S + dark) * s.exposure_s, np.float32)
 
         seeing = self.seeing_fwhm_px / 2.355 * (1 + 0.1 * rng.standard_normal())  # this frame's
@@ -146,11 +152,7 @@ class SimulatedASICamera(GuideCameraBase):
             canvas[ys[0] : ys[-1] + 1, xs[0] : xs[-1] + 1] += (
                 flux * s.exposure_s / (2 * math.pi * sigma**2) * np.outer(gy, gx)
             )
-        if s.binning > 1:
-            b = s.binning
-            h2, w2 = (h // b) * b, (w // b) * b
-            canvas = canvas[:h2, :w2].reshape(h2 // b, b, w2 // b, b).sum(axis=(1, 3))
-        return canvas
+        return _bin(canvas, s.binning)
 
     def _expose(self, settings: CaptureSettings) -> np.ndarray:
         started = time.monotonic()
@@ -167,6 +169,14 @@ class SimulatedASICamera(GuideCameraBase):
         finally:
             self._abort.clear()
         return np.clip(img, 0, 65535).astype(np.uint16)
+
+
+def _bin(canvas: np.ndarray, b: int) -> np.ndarray:
+    """Sum b x b pixels into one."""
+    if b > 1:
+        h2, w2 = (canvas.shape[0] // b) * b, (canvas.shape[1] // b) * b
+        canvas = canvas[:h2, :w2].reshape(h2 // b, b, w2 // b, b).sum(axis=(1, 3))
+    return canvas
 
 
 def _catalogue(size: tuple[int, int], count: int) -> tuple[np.ndarray, np.ndarray, np.ndarray]:

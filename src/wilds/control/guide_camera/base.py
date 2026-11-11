@@ -42,7 +42,15 @@ DEFAULT_SETPOINT_C = -10.0
 AT_SETPOINT_TOL_C = 1.0  # "stable" when the sensor is this close to the setpoint
 COOLER_CACHE_S = 1.0  # status is polled by every viewer; the hardware is read at most this often
 
-CaptureMode = Literal["single_frame", "video"]
+CaptureMode = Literal["single_frame", "video"]  # the two settings groups
+FrameMode = Literal["single_frame", "video", "dark", "bias"]  # what a frame was taken as
+CalibrationKind = Literal["dark", "bias"]
+IMAGETYP = {
+    "single_frame": "Light Frame",
+    "video": "Light Frame",
+    "dark": "Dark Frame",
+    "bias": "Bias Frame",
+}
 
 KEPT_FRAMES = 8  # recent frames still downloadable as FITS
 
@@ -107,7 +115,7 @@ class CaptureSettings(ConfModel):
         label="ROI",
         help="Region of interest: read out only this part of the sensor (smaller, faster frames); "
         "x, y, width and height are in full-resolution pixels, whatever the binning. "
-        "Not set is the whole sensor",
+        "Not set is the full sensor",
     )
 
 
@@ -197,7 +205,7 @@ class Cooler(BaseModel):
 
 class FrameMeta(BaseModel):
     id: int
-    mode: CaptureMode = "single_frame"  # which settings group took it
+    mode: FrameMode = "single_frame"  # which settings group took it, or dark / bias
     taken_ms: int  # end of the exposure, ms since the Unix epoch, UTC
     exposure_s: float
     gain: int
@@ -220,6 +228,9 @@ class GuideCameraStatus(BaseModel):
     cal_version: int = 0
     cooler: Cooler
     last_frame_id: int | None = None
+    # the newest dark or bias frame (kept among the recent frames, downloadable as FITS), so a
+    # viewer can show a calibration run's frames as they are taken
+    last_calibration_frame_id: int | None = None
     lifecycle: LifecycleStatus
 
 
@@ -229,18 +240,25 @@ class Frame:
     jpeg: bytes
     pixels: np.ndarray  # uint16, kept so the raw frame can be fetched as FITS
 
-    def fits(self) -> bytes:
+    def fits(self, extra: dict | None = None) -> bytes:
+        """The frame as a FITS file; ``extra`` adds header cards (a master adds NCOMBINE)."""
         from astropy.io import fits  # imported on use: only needed for downloads
 
         hdu = fits.PrimaryHDU(self.pixels)
         h = hdu.header
+        h["IMAGETYP"] = (IMAGETYP[self.meta.mode], "kind of frame")
         h["EXPTIME"] = (self.meta.exposure_s, "[s] exposure time")
         h["GAIN"] = (self.meta.gain, "camera gain")
         h["OFFSET"] = (self.meta.offset, "camera offset")
         h["XBINNING"] = h["YBINNING"] = self.meta.binning
         if self.meta.temperature_c is not None:
             h["CCD-TEMP"] = (self.meta.temperature_c, "[C] sensor temperature")
+        if self.meta.roi is not None:
+            h["XORGSUBF"] = (self.meta.roi.x, "[px] sub-frame origin, unbinned")
+            h["YORGSUBF"] = (self.meta.roi.y, "[px] sub-frame origin, unbinned")
         h["FRAMEID"] = self.meta.id
+        for key, value in (extra or {}).items():
+            h[key] = value
         out = io.BytesIO()
         hdu.writeto(out)
         return out.getvalue()
@@ -268,13 +286,14 @@ class GuideCameraBase(BaseModel, abc.ABC):
     _cal: ConfHandle[GuideCameraCal] = PrivateAttr()
     _cooler_cache: tuple[float, Cooler] | None = PrivateAttr(default=None)
     _life: Lifecycle = PrivateAttr()
+    _last_calibration_id: int | None = PrivateAttr(default=None)
 
     # -- hardware hooks -----------------------------------------------------------------
 
     @property
     @abc.abstractmethod
     def sensor_size(self) -> tuple[int, int]:
-        """(width, height) of the whole sensor in pixels, unbinned."""
+        """(width, height) of the full sensor in pixels, unbinned."""
 
     @abc.abstractmethod
     def _expose(self, settings: CaptureSettings) -> np.ndarray:
@@ -385,16 +404,18 @@ class GuideCameraBase(BaseModel, abc.ABC):
 
     def _check_roi(self, conf: GuideCameraConf) -> None:
         for name in ("single_frame", "video"):
-            s: CaptureSettings = getattr(conf, name)
-            if s.roi is None:
-                continue
-            width, height = self.sensor_size
-            if s.roi.x + s.roi.width > width or s.roi.y + s.roi.height > height:
-                raise SettingError(f"{name} roi: outside the {width}x{height} sensor")
-            if s.roi.width % s.binning or s.roi.height % s.binning:
-                raise SettingError(
-                    f"{name} roi: width and height must be multiples of binning {s.binning}"
-                )
+            self._check_roi_of(getattr(conf, name), name)
+
+    def _check_roi_of(self, s: CaptureSettings, name: str) -> None:
+        if s.roi is None:
+            return
+        width, height = self.sensor_size
+        if s.roi.x + s.roi.width > width or s.roi.y + s.roi.height > height:
+            raise SettingError(f"{name} roi: outside the {width}x{height} sensor")
+        if s.roi.width % s.binning or s.roi.height % s.binning:
+            raise SettingError(
+                f"{name} roi: width and height must be multiples of binning {s.binning}"
+            )
 
     # -- cooler -------------------------------------------------------------------------
 
@@ -455,11 +476,14 @@ class GuideCameraBase(BaseModel, abc.ABC):
     def unsubscribe(self, q: asyncio.Queue[Frame]) -> None:
         self._subscribers.discard(q)
 
-    def _publish(self, frame: Frame) -> None:
-        self._latest = frame
+    def _remember(self, frame: Frame) -> None:
         self._frames[frame.meta.id] = frame
         while len(self._frames) > KEPT_FRAMES:
             self._frames.popitem(last=False)
+
+    def _publish(self, frame: Frame) -> None:
+        self._latest = frame
+        self._remember(frame)
         for q in self._subscribers:
             if q.full():
                 q.get_nowait()  # drop the stale one
@@ -474,10 +498,18 @@ class GuideCameraBase(BaseModel, abc.ABC):
             raise CameraBusy("the guide camera is streaming")
         return await self._take("single_frame")
 
-    async def _take(self, mode: CaptureMode) -> Frame:
+    async def _take(
+        self,
+        mode: FrameMode,
+        settings: CaptureSettings | None = None,
+        *,
+        publish: bool = True,
+    ) -> Frame:
+        """One exposure. By default with the ``mode`` settings group, shown to every viewer; a
+        calibration frame brings its own settings and is only returned (and filed by the caller)."""
         if self._exposing:
             raise CameraBusy("the guide camera is already exposing")
-        s: CaptureSettings = getattr(self._conf.snapshot(), mode)
+        s: CaptureSettings = settings or getattr(self._conf.snapshot(), mode)
         self._exposing = True
         self.activities.start(GuideCameraActivity.Exposing, details=[f"{s.exposure_s:g} s"])
         try:
@@ -487,7 +519,23 @@ class GuideCameraBase(BaseModel, abc.ABC):
             self.activities.end(GuideCameraActivity.Exposing)
             self.activities.end(GuideCameraActivity.Cancelling)
         frame = await asyncio.to_thread(self._make_frame, pixels, s, mode)
-        self._publish(frame)
+        if publish:
+            self._publish(frame)
+        return frame
+
+    async def calibration_frame(self, kind: CalibrationKind, settings: CaptureSettings) -> Frame:
+        """A dark or bias frame with exactly ``settings``. The caller has closed the shutter and
+        files the frame; it is not shown to the live viewers and not kept among the recent ones.
+        Raises :class:`CameraBusy` while streaming, :class:`SettingError` for a window outside the
+        sensor, :class:`ExposureAborted` if :meth:`abort` cut it short, ``409 not_operational``
+        until the camera is started up."""
+        self._life.require_operational()
+        if self._streaming:
+            raise CameraBusy("the guide camera is streaming")
+        self._check_roi_of(settings, kind)
+        frame = await self._take(kind, settings, publish=False)
+        self._remember(frame)  # downloadable like any recent frame, until the run files it
+        self._last_calibration_id = frame.meta.id
         return frame
 
     def abort(self) -> None:
@@ -497,7 +545,7 @@ class GuideCameraBase(BaseModel, abc.ABC):
                 self.activities.start(GuideCameraActivity.Cancelling)
             self._abort_exposure()
 
-    def _make_frame(self, pixels: np.ndarray, s: CaptureSettings, mode: CaptureMode) -> Frame:
+    def _make_frame(self, pixels: np.ndarray, s: CaptureSettings, mode: FrameMode) -> Frame:
         self._seq += 1
         h, w = pixels.shape
         meta = FrameMeta(
@@ -563,6 +611,7 @@ class GuideCameraBase(BaseModel, abc.ABC):
             cal_version=self._cal.version,
             cooler=self.cooler(),
             last_frame_id=self._latest.meta.id if self._latest else None,
+            last_calibration_frame_id=self._last_calibration_id,
             lifecycle=self._life.status(),
         )
 
