@@ -530,7 +530,7 @@ def test_calibration_values_start_unset_and_a_procedure_that_needs_one_is_refuse
 def test_the_handles_are_in_the_registry_for_the_config_endpoints(client):
     from wilds.control.conf import confs
 
-    assert confs.components() == ["guide-camera", "shutter"]
+    assert confs.components() == ["guide-camera", "shutter", "telescope"]
     assert confs.slices("guide-camera") == [
         "cal",
         "conf",
@@ -591,3 +591,70 @@ def test_each_group_has_its_own_roi_and_binning(client):
     # one group's ROI is checked against that group's own binning
     bad = {"video": {"roi": {"x": 0, "y": 0, "width": 101, "height": 100}}}
     assert client.put("/guide-camera/settings", json=bad, headers=h).status_code == 422
+
+
+def test_the_simulated_camera_seeds_a_slit_only_when_asked_and_never_over_a_value(
+    config_file, client
+):
+    from wilds.control.guide_camera import _seed_simulated_calibration
+
+    camera = guide_camera.get_guide_camera()
+    assert camera.cal.current.plate_scale_arcsec_px is None  # not by default
+    _seed_simulated_calibration(camera)
+    cal = camera.cal.current
+    assert cal.plate_scale_arcsec_px == 0.25 and cal.slit_length_arcsec == 30.0
+    assert (cal.slit_pixel_x, cal.slit_pixel_y) == (648.0, 441.0) and cal.parity == 1
+    camera.cal.patch({"plate_scale_arcsec_px": 0.3}, who=ARIE)
+    _seed_simulated_calibration(camera)  # already set: left alone
+    assert camera.cal.current.plate_scale_arcsec_px == 0.3
+
+
+# -- the simulated field follows the simulated telescope ---------------------------------------
+
+
+def _brightest(camera) -> tuple[int, int]:
+    image = camera._electrons(guide_camera.base.CaptureSettings(exposure_s=0.5))
+    y, x = np.unravel_index(np.argmax(image), image.shape)
+    return int(x), int(y)
+
+
+def _still_camera(**kwargs):
+    camera = SimulatedASICamera(jitter_px=0.0, drift_x_px_s=0.0, drift_y_px_s=0.0, **kwargs)
+    camera.seeing_fwhm_px = 3.0
+    return camera
+
+
+def test_the_simulated_field_shifts_and_rotates_as_the_hook_says():
+    x0, y0 = _brightest(_still_camera())
+    shifted = _brightest(_still_camera(field=lambda: (30.0, -12.0, 0.0, 0.0, 0.0)))
+    assert abs(shifted[0] - (x0 + 30)) <= 1 and abs(shifted[1] - (y0 - 12)) <= 1
+    cx, cy = 648.0, 441.0
+    turned = _brightest(_still_camera(field=lambda: (0.0, 0.0, 90.0, cx, cy)))
+    # counter-clockwise on the screen with y down: (rx, ry) -> (ry, -rx)
+    expect = (cx + (y0 - cy), cy - (x0 - cx))
+    assert abs(turned[0] - expect[0]) <= 1 and abs(turned[1] - expect[1]) <= 1
+
+
+def test_the_telescopes_offsets_and_rotator_move_the_simulated_camera_field(client):
+    import math
+
+    from wilds.control import telescope
+    from wilds.control.guide_camera import _seed_simulated_calibration, simulated_field
+    from wilds.control.telescope import Offset, Target
+
+    camera = guide_camera.get_guide_camera()
+    _seed_simulated_calibration(camera)  # 0.25"/px, north 25 degrees CCW, parity +1
+    tel = telescope.get_telescope()
+    assert simulated_field(camera)[:3] == (0.0, 0.0, 0.0)  # nothing moved yet
+    tel.set_preview(False)
+    tel._send_offset("Handset", Offset(d1_arcsec=5.0, d2_arcsec=0.0), "TPLANE")
+    dx, dy, rot, cx, cy = simulated_field(camera)
+    # 5" east moves the stars west by 20 px: against the direction of east in the image
+    a = math.radians(25.0)  # north is 25 degrees counter-clockwise from up
+    east = (-math.cos(a), math.sin(a))
+    assert (dx, dy) == pytest.approx((-20 * east[0], -20 * east[1]))
+    assert rot == 0.0 and (cx, cy) == (648.0, 441.0)
+    tel._send_target(Target(name="x", ra_hours=3.0, dec_deg=20.0), 40.0, "Target")
+    later = tel.clock() + 10_000.0
+    tel.clock = lambda: later  # long after: the rotator has arrived
+    assert simulated_field(camera)[2] == pytest.approx(-40.0)

@@ -154,10 +154,22 @@ class GuideCameraCal(ConfModel):
     slit_pixel_x: float | None = setting(None, unit="px", label="Slit pixel x")
     slit_pixel_y: float | None = setting(None, unit="px", label="Slit pixel y")
     orientation_deg: float | None = setting(
-        None, unit="°", label="Orientation", help="Position angle of sky north in the image"
+        None,
+        unit="°",
+        label="Orientation",
+        help="Angle from the top of the image to sky north, counter-clockwise on the screen, "
+        "when the slit PA is 0. The camera turns with the rotator, so the slit stays where it is "
+        "in the image and the sky turns when the PA changes (north is at this angle minus "
+        "parity times the PA)",
     )
     parity: Literal[1, -1] | None = setting(
         None, label="Parity", help="-1 if the image is mirrored"
+    )
+    slit_length_arcsec: float | None = setting(
+        None, unit="arcsec", label="Slit length", help="Drawn on the live view", gt=0
+    )
+    slit_width_arcsec: float | None = setting(
+        None, unit="arcsec", label="Slit width", help="Drawn on the live view", gt=0
     )
 
 

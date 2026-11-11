@@ -102,3 +102,38 @@ async def start_demo(me: Me, body: DemoRequest | None = None) -> Job:
         started_by=StartedBy(name=me.name, code=me.code),
         queue=body.queue,
     )
+
+
+# -- the simulated TCS: what the TO does in the TCS GUI (plan §3.12) ------------------------------
+
+
+class PreviewRequest(BaseModel):
+    on: bool
+
+
+def _simulated():
+    from ..telescope import SimulatedTelescope, get_telescope
+
+    telescope = get_telescope()
+    if not isinstance(telescope, SimulatedTelescope):
+        raise ApiError(404, "not_found", "The telescope is not simulated")
+    return telescope
+
+
+@router.put("/telescope/preview")
+async def set_preview(body: PreviewRequest) -> dict[str, bool]:
+    """Switch the simulated TCS's External Command Preview."""
+    _simulated().set_preview(body.on)
+    return {"preview": body.on}
+
+
+@router.post("/telescope/accept")
+async def accept_pending() -> dict[str, bool]:
+    """The TO accepts the previewed command in the (simulated) TCS."""
+    return {"accepted": _simulated().accept_pending()}
+
+
+@router.post("/telescope/reject")
+async def reject_pending() -> dict[str, bool]:
+    """The TO rejects the previewed command in the (simulated) TCS."""
+    return {"rejected": _simulated().reject_pending()}

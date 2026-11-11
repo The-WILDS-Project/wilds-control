@@ -61,6 +61,10 @@ class GuideCameraConfig(BaseModel):
     # "simulated" is the default so a bare checkout runs; "asi" is the real camera (deployment
     # only: changing it needs a restart).
     kind: Literal["simulated", "asi"] = "simulated"
+    # Fill in the calibration (plate scale, slit pixel, orientation...) the first time the
+    # simulated camera starts, so the live view's slit overlay can be tried; never touches
+    # values that are already set.
+    seed_simulated_calibration: bool = False
 
 
 class Filing(BaseModel):

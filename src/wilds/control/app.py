@@ -21,9 +21,11 @@ from .routers import (
     jobs,
     lamps,
     light_path,
+    resolve,
     shutter,
     slit,
     status,
+    telescope,
 )
 from .routers import (
     config as config_router,
@@ -32,6 +34,7 @@ from .routers import (
     system as system_router,
 )
 from .shutter import close_shutter, get_shutter
+from .telescope import close_telescope, get_telescope
 
 
 @asynccontextmanager
@@ -40,6 +43,7 @@ async def lifespan(app: FastAPI):
     paths.require_root()
     get_guide_camera()
     get_shutter()
+    get_telescope()
     get_filing().start()
     if config.get().autostart:
         await system.startup()
@@ -47,6 +51,7 @@ async def lifespan(app: FastAPI):
     close_filing()
     await close_guide_camera()
     await close_shutter()
+    await close_telescope()
 
 
 def create_app() -> FastAPI:
@@ -66,6 +71,8 @@ def create_app() -> FastAPI:
     app.include_router(guide_camera.router)
     app.include_router(guide_calibration.router)
     app.include_router(shutter.router)
+    app.include_router(telescope.router)
+    app.include_router(resolve.router)
     app.include_router(light_path.router)
     app.include_router(config_router.router)
     app.include_router(system_router.router)

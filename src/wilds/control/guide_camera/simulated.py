@@ -7,6 +7,12 @@ tracking), mostly common to all stars. The star size is ``seeing_fwhm_px`` varyi
 from frame to frame, broadened by ``defocus_px`` (the knob a focus stage will drive). Lengths
 are in unbinned sensor pixels; the plate scale is not known yet.
 
+**Following the telescope.** ``field`` says how the telescope has moved the field since the
+reference sky (pointing offsets, and the rotator turning the whole image about the slit): the
+stars are rotated about a centre and then shifted, in unbinned pixels. The app wires it to the
+simulated telescope (``guide_camera/__init__.py``), so an offset or a rotation shows in the live
+view.
+
 **Pacing.** A frame takes its exposure time, or the time to draw it if that is longer, as a
 real camera's video mode does: about 30 fps at the shortest exposures.
 
@@ -51,6 +57,11 @@ class SimulatedASICamera(GuideCameraBase):
     offset_y_px: float = 0.0
     # Is the light path blocked (the TO has blocked it)? Then only the dark current is recorded.
     light_blocked: Callable[[], bool] = Field(default=lambda: False, exclude=True)
+    # How the telescope has moved the field: (dx_px, dy_px, rotation_deg_ccw, centre_x, centre_y),
+    # the stars rotated counter-clockwise about the centre and then shifted. Zeros: not moved.
+    field: Callable[[], tuple[float, float, float, float, float]] = Field(
+        default=lambda: (0.0, 0.0, 0.0, 0.0, 0.0), exclude=True
+    )
 
     _stars: tuple[np.ndarray, np.ndarray, np.ndarray] = PrivateAttr()  # x, y, flux (e/s)
     _drift: list[float] = PrivateAttr(default_factory=lambda: [0.0, 0.0])
@@ -139,9 +150,14 @@ class SimulatedASICamera(GuideCameraBase):
         seeing = self.seeing_fwhm_px / 2.355 * (1 + 0.1 * rng.standard_normal())  # this frame's
         sigma = max(0.5, math.hypot(seeing, self.defocus_px))
         half = math.ceil(4 * sigma)
+        fdx, fdy, frot, fcx, fcy = self.field()
+        cos_r, sin_r = math.cos(math.radians(frot)), math.sin(math.radians(frot))
         for x, y, flux in zip(*self._stars, strict=True):
-            cx = x + shift_x + scatter * rng.standard_normal() - x0
-            cy = y + shift_y + scatter * rng.standard_normal() - y0
+            if frot:  # counter-clockwise on the screen (y runs down)
+                rx, ry = x - fcx, y - fcy
+                x, y = fcx + rx * cos_r + ry * sin_r, fcy - rx * sin_r + ry * cos_r
+            cx = x + fdx + shift_x + scatter * rng.standard_normal() - x0
+            cy = y + fdy + shift_y + scatter * rng.standard_normal() - y0
             ix, iy = round(cx), round(cy)
             if ix + half < 0 or ix - half >= w or iy + half < 0 or iy - half >= h:
                 continue
