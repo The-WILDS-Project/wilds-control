@@ -24,7 +24,7 @@ from typing import ClassVar
 import numpy as np
 from pydantic import PrivateAttr
 
-from .base import ExposureAborted, GuideCameraBase, GuideCameraConf
+from .base import CaptureSettings, ExposureAborted, GuideCameraBase
 
 SENSOR = (1296, 882)  # a fifth of the ASI294MM's 4144 x 2822: cheap to draw and to encode
 MAX_DELTA_C = 35.0  # the ASI294MM Pro cools about this far below ambient
@@ -112,7 +112,7 @@ class SimulatedASICamera(GuideCameraBase):
         self.offset_x_px += dx_px
         self.offset_y_px += dy_px
 
-    def _electrons(self, s: GuideCameraConf) -> np.ndarray:
+    def _electrons(self, s: CaptureSettings) -> np.ndarray:
         """The noise-free image in electrons, after ROI and binning, stars where they are now."""
         now = self.clock()
         dt, self._drift_t = now - self._drift_t, now
@@ -152,7 +152,7 @@ class SimulatedASICamera(GuideCameraBase):
             canvas = canvas[:h2, :w2].reshape(h2 // b, b, w2 // b, b).sum(axis=(1, 3))
         return canvas
 
-    def _expose(self, settings: GuideCameraConf) -> np.ndarray:
+    def _expose(self, settings: CaptureSettings) -> np.ndarray:
         started = time.monotonic()
         try:
             electrons = self._electrons(settings)

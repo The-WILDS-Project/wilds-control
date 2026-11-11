@@ -106,7 +106,7 @@ async def stop(camera: Camera) -> GuideCameraStatus:
 
 
 async def _snap(ctx: JobContext, camera: GuideCameraBase) -> dict[str, int]:
-    ctx.progress(message=f"exposing {camera.conf.current.exposure_s:g} s")
+    ctx.progress(message=f"exposing {camera.conf.current.single_frame.exposure_s:g} s")
     task = asyncio.create_task(camera.single_frame())
     try:
         while not (await asyncio.wait({task}, timeout=0.1))[0]:
@@ -126,7 +126,7 @@ async def _snap(ctx: JobContext, camera: GuideCameraBase) -> dict[str, int]:
 
 @router.post("/frames", status_code=202, response_model=Job, dependencies=[NeedsLease])
 async def take_frame(camera: Camera, me: Me) -> Job:
-    """One exposure with the current settings, as a job. ``409 busy`` while streaming and
+    """One exposure with the single-frame settings, as a job. ``409 busy`` while streaming and
     ``409 not_operational`` until the camera is started up."""
     camera.life.require_operational()
     if camera.streaming:

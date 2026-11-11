@@ -361,3 +361,17 @@ def test_the_registry_adopts_a_handle_a_component_built_and_replaces_an_older_on
     reg.add(first)
     reg.add(second)
     assert reg.get("adc") is second
+
+
+def test_patch_keeps_the_rest_of_a_nested_group_that_is_sent_in_part(store):
+    class Inner(ConfModel):
+        a: int = 1
+        b: int = 2
+
+    class Outer(ConfModel):
+        first: Inner = Inner()
+        second: Inner = Inner()
+
+    conf = ConfHandle("deep", "conf", Outer, store)
+    conf.patch({"first": {"a": 10}}, who=ARIE)
+    assert conf.current.first == Inner(a=10, b=2) and conf.current.second == Inner()

@@ -6,6 +6,8 @@ from ..lifecycle import system
 from .asi import ASICamera
 from .base import (
     CameraBusy,
+    CaptureSettings,
+    CaptureUpdate,
     Cooler,
     CoolerRequest,
     ExposureAborted,
@@ -24,6 +26,8 @@ from .simulated import SimulatedASICamera
 __all__ = [
     "ASICamera",
     "CameraBusy",
+    "CaptureSettings",
+    "CaptureUpdate",
     "Cooler",
     "CoolerRequest",
     "ExposureAborted",

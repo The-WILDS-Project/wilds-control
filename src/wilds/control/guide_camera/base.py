@@ -42,6 +42,8 @@ DEFAULT_SETPOINT_C = -10.0
 AT_SETPOINT_TOL_C = 1.0  # "stable" when the sensor is this close to the setpoint
 COOLER_CACHE_S = 1.0  # status is polled by every viewer; the hardware is read at most this often
 
+CaptureMode = Literal["single_frame", "video"]
+
 KEPT_FRAMES = 8  # recent frames still downloadable as FITS
 
 
@@ -77,9 +79,10 @@ class Roi(ConfModel):
     height: int = Field(ge=MIN_ROI_PIXELS)
 
 
-class GuideCameraConf(ConfModel):
-    """The operational settings (``camera.conf``): the control holder may change them. They
-    are kept in the settings store; these are the defaults of a camera nobody has set up."""
+class CaptureSettings(ConfModel):
+    """How one kind of capture is taken. The camera keeps one group for single frames and one for
+    the video stream (``camera.conf.current.single_frame`` / ``.video``), so a live view can run
+    short and binned while a science-grade frame is long and full-resolution."""
 
     exposure_s: float = setting(
         0.5, unit="s", label="Exposure", ge=EXPOSURE_RANGE_S[0], le=EXPOSURE_RANGE_S[1]
@@ -105,6 +108,22 @@ class GuideCameraConf(ConfModel):
         help="Region of interest: read out only this part of the sensor (smaller, faster frames); "
         "x, y, width and height are in full-resolution pixels, whatever the binning. "
         "Not set is the whole sensor",
+    )
+
+
+class GuideCameraConf(ConfModel):
+    """The operational settings (``camera.conf``): the control holder may change them. They
+    are kept in the settings store; these are the defaults of a camera nobody has set up."""
+
+    single_frame: CaptureSettings = Field(
+        default_factory=CaptureSettings,
+        title="Single frame",
+        description="Settings for one frame taken on request",
+    )
+    video: CaptureSettings = Field(
+        default_factory=CaptureSettings,
+        title="Video",
+        description="Settings for the continuous video stream",
     )
     # Start cooling at startup? Yes in development; production is to be decided (off until then).
     cooler_enabled: bool = by_opmode(
@@ -134,8 +153,8 @@ class GuideCameraCal(ConfModel):
     )
 
 
-class SettingsUpdate(BaseModel):
-    """A partial change: only the fields sent are changed (``roi: null`` clears the ROI)."""
+class CaptureUpdate(BaseModel):
+    """A partial change of one group: only the fields sent are changed (``roi: null`` clears it)."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -144,6 +163,15 @@ class SettingsUpdate(BaseModel):
     offset: int | None = None
     binning: Literal[1, 2] | None = None
     roi: Roi | None = None
+
+
+class SettingsUpdate(BaseModel):
+    """A partial change: only the groups and fields sent are changed."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    single_frame: CaptureUpdate | None = None
+    video: CaptureUpdate | None = None
 
 
 CoolerState = Literal["unsupported", "off", "cooling", "stable"]
@@ -169,6 +197,7 @@ class Cooler(BaseModel):
 
 class FrameMeta(BaseModel):
     id: int
+    mode: CaptureMode = "single_frame"  # which settings group took it
     taken_ms: int  # end of the exposure, ms since the Unix epoch, UTC
     exposure_s: float
     gain: int
@@ -248,7 +277,7 @@ class GuideCameraBase(BaseModel, abc.ABC):
         """(width, height) of the whole sensor in pixels, unbinned."""
 
     @abc.abstractmethod
-    def _expose(self, settings: GuideCameraConf) -> np.ndarray:
+    def _expose(self, settings: CaptureSettings) -> np.ndarray:
         """Take one exposure (blocking); a uint16 image after ROI and binning. Raise
         :class:`ExposureAborted` if :meth:`_abort_exposure` cut it short."""
 
@@ -354,14 +383,18 @@ class GuideCameraBase(BaseModel, abc.ABC):
                 new.cooler_setpoint_c,
             )
 
-    def _check_roi(self, s: GuideCameraConf) -> None:
-        if s.roi is None:
-            return
-        width, height = self.sensor_size
-        if s.roi.x + s.roi.width > width or s.roi.y + s.roi.height > height:
-            raise SettingError(f"roi: outside the {width}x{height} sensor")
-        if s.roi.width % s.binning or s.roi.height % s.binning:
-            raise SettingError(f"roi: width and height must be multiples of binning {s.binning}")
+    def _check_roi(self, conf: GuideCameraConf) -> None:
+        for name in ("single_frame", "video"):
+            s: CaptureSettings = getattr(conf, name)
+            if s.roi is None:
+                continue
+            width, height = self.sensor_size
+            if s.roi.x + s.roi.width > width or s.roi.y + s.roi.height > height:
+                raise SettingError(f"{name} roi: outside the {width}x{height} sensor")
+            if s.roi.width % s.binning or s.roi.height % s.binning:
+                raise SettingError(
+                    f"{name} roi: width and height must be multiples of binning {s.binning}"
+                )
 
     # -- cooler -------------------------------------------------------------------------
 
@@ -433,18 +466,18 @@ class GuideCameraBase(BaseModel, abc.ABC):
             q.put_nowait(frame)
 
     async def single_frame(self) -> Frame:
-        """A fresh exposure with the current settings. Raises :class:`CameraBusy` while
+        """A fresh exposure with the ``single_frame`` settings. Raises :class:`CameraBusy` while
         streaming, :class:`ExposureAborted` if :meth:`abort` cut it short, and ``409
         not_operational`` until the camera is started up."""
         self._life.require_operational()
         if self._streaming:
             raise CameraBusy("the guide camera is streaming")
-        return await self._take()
+        return await self._take("single_frame")
 
-    async def _take(self) -> Frame:
+    async def _take(self, mode: CaptureMode) -> Frame:
         if self._exposing:
             raise CameraBusy("the guide camera is already exposing")
-        s = self._conf.snapshot()
+        s: CaptureSettings = getattr(self._conf.snapshot(), mode)
         self._exposing = True
         self.activities.start(GuideCameraActivity.Exposing, details=[f"{s.exposure_s:g} s"])
         try:
@@ -453,7 +486,7 @@ class GuideCameraBase(BaseModel, abc.ABC):
             self._exposing = False
             self.activities.end(GuideCameraActivity.Exposing)
             self.activities.end(GuideCameraActivity.Cancelling)
-        frame = await asyncio.to_thread(self._make_frame, pixels, s)
+        frame = await asyncio.to_thread(self._make_frame, pixels, s, mode)
         self._publish(frame)
         return frame
 
@@ -464,11 +497,12 @@ class GuideCameraBase(BaseModel, abc.ABC):
                 self.activities.start(GuideCameraActivity.Cancelling)
             self._abort_exposure()
 
-    def _make_frame(self, pixels: np.ndarray, s: GuideCameraConf) -> Frame:
+    def _make_frame(self, pixels: np.ndarray, s: CaptureSettings, mode: CaptureMode) -> Frame:
         self._seq += 1
         h, w = pixels.shape
         meta = FrameMeta(
             id=self._seq,
+            mode=mode,
             taken_ms=time.time_ns() // 1_000_000,
             exposure_s=s.exposure_s,
             gain=s.gain,
@@ -497,7 +531,7 @@ class GuideCameraBase(BaseModel, abc.ABC):
     async def _stream(self) -> None:
         try:
             while self._streaming:
-                await self._take()
+                await self._take("video")
         except ExposureAborted:
             pass
         except Exception:
