@@ -3,6 +3,7 @@
 from .. import config
 from ..conf import confs
 from ..lifecycle import system
+from ..shutter import get_shutter
 from .asi import ASICamera
 from .base import (
     CameraBusy,
@@ -56,7 +57,11 @@ def get_guide_camera() -> GuideCameraBase:
     global _camera
     if _camera is None:
         kind = config.get().guide_camera.kind
-        camera = ASICamera() if kind == "asi" else SimulatedASICamera()
+        camera = (
+            ASICamera()
+            if kind == "asi"
+            else SimulatedASICamera(light_blocked=lambda: get_shutter().state == "closed")
+        )
         confs.add(camera.conf)  # for the /config endpoints
         confs.add(camera.cal)
         system.register(camera.life)  # started up by the system (or by hand), not here
