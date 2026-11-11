@@ -49,7 +49,7 @@ class SimulatedASICamera(GuideCameraBase):
     drift_y_px_s: float = -0.01
     offset_x_px: float = 0.0  # where the telescope has been told to point, see nudge()
     offset_y_px: float = 0.0
-    # Is the light path blocked (the shutter closed)? Then only the dark current is recorded.
+    # Is the light path blocked (the TO has blocked it)? Then only the dark current is recorded.
     light_blocked: Callable[[], bool] = Field(default=lambda: False, exclude=True)
 
     _stars: tuple[np.ndarray, np.ndarray, np.ndarray] = PrivateAttr()  # x, y, flux (e/s)

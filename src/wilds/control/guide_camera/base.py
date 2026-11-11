@@ -524,8 +524,8 @@ class GuideCameraBase(BaseModel, abc.ABC):
         return frame
 
     async def calibration_frame(self, kind: CalibrationKind, settings: CaptureSettings) -> Frame:
-        """A dark or bias frame with exactly ``settings``. The caller has closed the shutter and
-        files the frame; it is not shown to the live viewers and not kept among the recent ones.
+        """A dark or bias frame with exactly ``settings``. The caller has blocked the light path
+        (a dark) and files the frame; it is not shown to the live viewers and not kept among the recent ones.
         Raises :class:`CameraBusy` while streaming, :class:`SettingError` for a window outside the
         sensor, :class:`ExposureAborted` if :meth:`abort` cut it short, ``409 not_operational``
         until the camera is started up."""

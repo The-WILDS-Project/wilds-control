@@ -20,6 +20,7 @@ from .routers import (
     guide_camera,
     jobs,
     lamps,
+    light_path,
     shutter,
     slit,
     status,
@@ -65,6 +66,7 @@ def create_app() -> FastAPI:
     app.include_router(guide_camera.router)
     app.include_router(guide_calibration.router)
     app.include_router(shutter.router)
+    app.include_router(light_path.router)
     app.include_router(config_router.router)
     app.include_router(system_router.router)
     app.include_router(status.router)
