@@ -42,8 +42,8 @@ def test_index_lists_components_and_slices(client):
 def test_get_gives_values_schema_and_version(client):
     body = client.get(URL).json()
     assert body["version"] == 0
-    assert isinstance(body["values"]["gain"], int)
-    assert "gain" in body["json_schema"]["properties"]
+    assert isinstance(body["values"]["single_frame"]["gain"], int)
+    assert {"single_frame", "video"} <= set(body["json_schema"]["properties"])
 
 
 def test_unknown_component_and_slice_are_404(client):
@@ -52,49 +52,53 @@ def test_unknown_component_and_slice_are_404(client):
 
 
 def test_put_needs_the_lease(client):
-    r = client.put(URL, json={"values": {"gain": 150}, "version": 0})
+    r = client.put(URL, json={"values": {"single_frame": {"gain": 150}}, "version": 0})
     assert r.status_code == 403
 
 
 def test_put_saves_under_the_holder_and_bumps_version(client):
     h = hold_lease(client)
-    r = client.put(URL, json={"values": {"gain": 150}, "version": 0, "reason": "test"}, headers=h)
+    r = client.put(
+        URL,
+        json={"values": {"single_frame": {"gain": 150}}, "version": 0, "reason": "test"},
+        headers=h,
+    )
     assert r.status_code == 200, r.text
-    assert r.json()["version"] == 1 and r.json()["values"]["gain"] == 150
+    assert r.json()["version"] == 1 and r.json()["values"]["single_frame"]["gain"] == 150
     hist = client.get(f"{URL}/history").json()
     assert hist[0]["who"] == "Arie" and hist[0]["reason"] == "test"
-    assert client.get("/guide-camera/settings").json()["gain"] == 150
+    assert client.get("/guide-camera/settings").json()["single_frame"]["gain"] == 150
 
 
 def test_stale_version_is_409_stale_and_changes_nothing(client):
     h = hold_lease(client)
-    client.put(URL, json={"values": {"gain": 150}, "version": 0}, headers=h)
-    r = client.put(URL, json={"values": {"gain": 200}, "version": 0}, headers=h)
+    client.put(URL, json={"values": {"single_frame": {"gain": 150}}, "version": 0}, headers=h)
+    r = client.put(URL, json={"values": {"single_frame": {"gain": 200}}, "version": 0}, headers=h)
     assert r.status_code == 409
     assert r.json()["code"] == "stale" and r.json()["details"]["version"] == 1
-    assert client.get(URL).json()["values"]["gain"] == 150
+    assert client.get(URL).json()["values"]["single_frame"]["gain"] == 150
 
 
 def test_out_of_limits_is_422(client):
     h = hold_lease(client)
-    r = client.put(URL, json={"values": {"gain": 99999}, "version": 0}, headers=h)
+    r = client.put(URL, json={"values": {"single_frame": {"gain": 99999}}, "version": 0}, headers=h)
     assert r.status_code == 422 and r.json()["code"] == "invalid"
 
 
 def test_component_refusal_is_422_and_nothing_is_recorded(client):
     h = hold_lease(client)
     roi = {"x": 0, "y": 0, "width": 99999, "height": 99999}
-    r = client.put(URL, json={"values": {"roi": roi}, "version": 0}, headers=h)
+    r = client.put(URL, json={"values": {"single_frame": {"roi": roi}}, "version": 0}, headers=h)
     assert r.status_code == 422 and r.json()["code"] == "invalid"
     assert client.get(URL).json()["version"] == 0
 
 
 def test_revert_restores_an_earlier_version_as_a_new_one(client):
     h = hold_lease(client)
-    client.put(URL, json={"values": {"gain": 150}, "version": 0}, headers=h)
-    client.put(URL, json={"values": {"gain": 200}, "version": 1}, headers=h)
+    client.put(URL, json={"values": {"single_frame": {"gain": 150}}, "version": 0}, headers=h)
+    client.put(URL, json={"values": {"single_frame": {"gain": 200}}, "version": 1}, headers=h)
     r = client.post(f"{URL}/revert/1", headers=h)
-    assert r.status_code == 200 and r.json()["values"]["gain"] == 150
+    assert r.status_code == 200 and r.json()["values"]["single_frame"]["gain"] == 150
     assert r.json()["version"] == 3
     assert client.post(f"{URL}/revert/99", headers=h).status_code == 404
 
@@ -114,7 +118,6 @@ def test_calibration_slice_starts_uncalibrated(client):
 def test_status_carries_every_sections_version(client):
     h = hold_lease(client)
     assert client.get("/status").json()["conf_versions"]["guide-camera/conf"] == 0
-    client.put(URL, json={"values": {"gain": 150}, "version": 0}, headers=h)
+    client.put(URL, json={"values": {"single_frame": {"gain": 150}}, "version": 0}, headers=h)
     versions = client.get("/status").json()["conf_versions"]
     assert versions["guide-camera/conf"] == 1 and versions["guide-camera/cal"] == 0
-

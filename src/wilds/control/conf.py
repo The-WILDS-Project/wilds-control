@@ -186,7 +186,7 @@ class ConfHandle[M: ConfModel]:
     ) -> Entry | None:
         """Change some fields, validated as a whole (a partial PUT). Raises pydantic's
         ``ValidationError`` for a bad value, with nothing changed."""
-        merged = self.model.model_validate({**self._current.model_dump(), **changes})
+        merged = self.model.model_validate(_merge(self._current.model_dump(), changes))
         return self.save(merged, who=who, reason=reason, expected_version=expected_version)
 
     def revert(self, version: int, *, who: StartedBy, reason: str | None = None) -> Entry | None:
@@ -238,6 +238,17 @@ class ConfHandle[M: ConfModel]:
                 listener(old, new, changed)
             except Exception:
                 log.exception("%s: a change listener failed", self.section)
+
+
+def _merge(base: dict[str, Any], changes: dict[str, Any]) -> dict[str, Any]:
+    """``changes`` laid over ``base``; a nested group that is sent in part keeps its other fields."""
+    out = dict(base)
+    for key, value in changes.items():
+        if isinstance(value, dict) and isinstance(out.get(key), dict):
+            out[key] = _merge(out[key], value)
+        else:
+            out[key] = value
+    return out
 
 
 def _changed(old: BaseModel, new: BaseModel) -> list[str]:
