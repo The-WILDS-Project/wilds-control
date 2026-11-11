@@ -43,6 +43,21 @@ def root() -> Path:
     return _absolute(ROOT_ENV, os.environ.get(ROOT_ENV) or DEFAULT_ROOT)
 
 
+def require_root() -> Path:
+    """The root, which must exist: the package or an administrator makes it (the software makes
+    what is under it, never the root itself). Fails at start with what to do about it."""
+    path = root()
+    if not path.is_dir():
+        where = "$WILDS_ROOT" if os.environ.get(ROOT_ENV) else f"the default root {DEFAULT_ROOT}"
+        raise RuntimeError(
+            f"{where} ({path}) is not a directory. Set WILDS_ROOT to the folder WILDS keeps its "
+            "files in: in development, WILDS_ROOT=~/wilds-dev (the VS Code launch entry sets it; "
+            "a server started by hand needs it exported); in production the package creates "
+            f"{DEFAULT_ROOT}."
+        )
+    return path
+
+
 def etc() -> Path:
     return root() / "etc"
 

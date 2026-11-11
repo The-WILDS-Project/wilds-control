@@ -58,3 +58,18 @@ def test_the_two_files_default_under_etc_unless_named(monkeypatch, wilds_root, t
     (wilds_root / "etc" / "passphrases.toml").write_text('[passphrases]\nto = "from-etc"\n')
     cfg = config.get()
     assert cfg.opmode == "production" and cfg.passphrases.to == "from-etc"
+
+
+def test_a_missing_root_stops_the_start_and_says_what_to_set(monkeypatch, tmp_path):
+    from fastapi.testclient import TestClient
+
+    from wilds.control.app import create_app
+
+    monkeypatch.setenv("WILDS_ROOT", str(tmp_path / "nowhere"))
+    with pytest.raises(RuntimeError, match="WILDS_ROOT=~/wilds-dev"), TestClient(create_app()):
+        pass
+
+    monkeypatch.delenv("WILDS_ROOT")  # unset: the default root is named in the message
+    monkeypatch.setattr(paths, "DEFAULT_ROOT", str(tmp_path / "default"))
+    with pytest.raises(RuntimeError, match="the default root .*default"):
+        paths.require_root()
