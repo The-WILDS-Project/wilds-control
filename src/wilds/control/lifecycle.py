@@ -240,6 +240,11 @@ class Umbrella:
 
 
 class SystemStatus(BaseModel):
+    """WILDS as a whole. ``opstate`` is ``startedup`` or ``shutdown`` only when every component
+    is; ``initializing`` while any still is; otherwise ``initialized`` (powered, not wholly
+    activated), so a start-up or a shutdown is offered whenever it would change something."""
+
+    opstate: OpState = OpState.initialized
     operational: bool
     why_not_operational: list[str] = []
     components: dict[str, LifecycleStatus] = {}
@@ -283,7 +288,19 @@ class System:
     def status(self) -> SystemStatus:
         parts = {c: self._lives[c].status() for c in self.components}
         reasons = [f"{c}: {r}" for c, s in parts.items() for r in s.why_not_operational]
-        return SystemStatus(operational=not reasons, why_not_operational=reasons, components=parts)
+        states = {s.opstate for s in parts.values()}
+        if OpState.initializing in states:
+            opstate = OpState.initializing
+        elif len(states) == 1:
+            opstate = next(iter(states))
+        else:
+            opstate = OpState.initialized
+        return SystemStatus(
+            opstate=opstate,
+            operational=not reasons,
+            why_not_operational=reasons,
+            components=parts,
+        )
 
     async def startup(self, progress: Callable[[float, str], None] | None = None) -> SystemStatus:
         return await self._all(STARTING_UP, lambda life: life.startup(), progress)
