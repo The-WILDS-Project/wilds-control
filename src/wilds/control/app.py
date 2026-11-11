@@ -3,7 +3,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from . import config, errors
+from . import config, errors, paths
 from .filing import close_filing, get_filing
 from .guide_camera import close_guide_camera, get_guide_camera
 from .jobs import manager as job_manager
@@ -35,6 +35,7 @@ from .shutter import close_shutter, get_shutter
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # TODO: initialise broker, solver
+    paths.require_root()
     get_guide_camera()
     get_shutter()
     get_filing().start()

@@ -7,6 +7,7 @@ import pytest
 def wilds_root(tmp_path, monkeypatch):
     """Every test has its own WILDS_ROOT, and no test touches a real /opt/wilds or data mount."""
     root = tmp_path / "wilds-root"
+    root.mkdir()  # the package or an administrator makes the root; the software makes the rest
     monkeypatch.setenv("WILDS_ROOT", str(root))
     monkeypatch.delenv("WILDS_LOIS_DATA_ROOT", raising=False)
     return root
