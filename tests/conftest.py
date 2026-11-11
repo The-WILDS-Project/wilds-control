@@ -64,6 +64,16 @@ def fresh_guide_camera():
 
 
 @pytest.fixture(autouse=True)
+def fresh_shutter():
+    """Each test builds its own shutter."""
+    from wilds.control import shutter
+
+    shutter.reset()
+    yield
+    shutter.reset()
+
+
+@pytest.fixture(autouse=True)
 def fresh_system():
     """Each test starts with no components registered for startup and no umbrella running."""
     from wilds.control.lifecycle import system
