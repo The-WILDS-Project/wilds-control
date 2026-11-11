@@ -1,3 +1,4 @@
+import asyncio
 import time
 
 import numpy as np
@@ -14,6 +15,11 @@ from wilds.control.guide_camera import (
 from wilds.control.jobs import StartedBy, manager
 
 ARIE = StartedBy(name="Arie", code="K7-42")
+
+
+def up(cam) -> None:
+    """Start a directly built camera up (the app does this at boot in development)."""
+    asyncio.run(cam.startup())
 
 
 class Clock:
@@ -156,7 +162,7 @@ def test_a_setpoint_outside_the_range_is_refused(client, setpoint):
 def test_the_sensor_follows_the_setpoint_and_settles_within_the_tolerance():
     clock = Clock()
     cam = SimulatedASICamera(clock=clock)
-    cam.apply_conf()  # the app does this at startup: the default is on, at -10 °C
+    up(cam)  # startup puts the settings on the hardware: the default is on, at -10 °C
     assert cam.cooler().state == "cooling"
     clock.now += 45  # one time constant: about 63 % of the way
     mid = cam.cooler()
@@ -169,6 +175,7 @@ def test_the_sensor_follows_the_setpoint_and_settles_within_the_tolerance():
 def test_the_sensor_cannot_go_further_below_ambient_than_the_cooler_can():
     clock = Clock()
     cam = SimulatedASICamera(clock=clock, ambient_c=20.0)
+    up(cam)
     cam.conf.patch({"cooler_enabled": True, "cooler_setpoint_c": -40}, who=ARIE)
     clock.now += 3000
     assert cam.cooler().temperature_c == pytest.approx(-15.0, abs=0.2)
@@ -178,7 +185,7 @@ def test_the_sensor_cannot_go_further_below_ambient_than_the_cooler_can():
 def test_switched_off_the_sensor_drifts_back_to_ambient():
     clock = Clock()
     cam = SimulatedASICamera(clock=clock)
-    cam.apply_conf()
+    up(cam)
     clock.now += 600
     cam.conf.patch({"cooler_enabled": False}, who=ARIE)
     assert cam.cooler().state == "off" and cam.cooler().power_pct == 0.0
@@ -203,6 +210,7 @@ def test_the_hardware_is_read_at_most_once_a_second():
 def test_a_colder_sensor_gives_a_cleaner_dark_frame():
     clock = Clock()
     cam = SimulatedASICamera(clock=clock)
+    up(cam)
     cam.conf.patch(dict(exposure_s=0.5, gain=300), who=ARIE)  # noqa: C408
     warm = cam._expose(cam.settings).mean()
     cam.conf.patch({"cooler_enabled": True, "cooler_setpoint_c": -15}, who=ARIE)
@@ -317,9 +325,9 @@ def test_viewers_get_metadata_then_a_jpeg_per_frame(client):
 
 def test_a_subscriber_holds_only_the_newest_frame():
     cam = SimulatedASICamera()
-    import asyncio
 
     async def go():
+        await cam.startup()
         q = cam.subscribe()
         cam.conf.patch(dict(exposure_s=0.01), who=ARIE)  # noqa: C408
         ids = [(await cam.single_frame()).meta.id for _ in range(3)]

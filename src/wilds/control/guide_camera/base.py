@@ -26,6 +26,7 @@ from pydantic import BaseModel, ConfigDict, Field, PrivateAttr
 
 from ..activities import Activities, registry
 from ..conf import ChangeBusy, ConfHandle, ConfModel, InvalidChange, by_opmode, setting
+from ..lifecycle import Lifecycle, LifecycleStatus, OpState
 
 log = logging.getLogger(__name__)
 
@@ -48,6 +49,8 @@ class GuideCameraActivity(Enum):
     Exposing = 1
     Streaming = 2
     Cancelling = 3  # an exposure is being aborted
+    StartingUp = 4
+    ShuttingDown = 5
 
 
 class SettingError(InvalidChange):
@@ -188,6 +191,7 @@ class GuideCameraStatus(BaseModel):
     cal_version: int = 0
     cooler: Cooler
     last_frame_id: int | None = None
+    lifecycle: LifecycleStatus
 
 
 @dataclass
@@ -234,6 +238,7 @@ class GuideCameraBase(BaseModel, abc.ABC):
     _conf: ConfHandle[GuideCameraConf] = PrivateAttr()
     _cal: ConfHandle[GuideCameraCal] = PrivateAttr()
     _cooler_cache: tuple[float, Cooler] | None = PrivateAttr(default=None)
+    _life: Lifecycle = PrivateAttr()
 
     # -- hardware hooks -----------------------------------------------------------------
 
@@ -282,6 +287,33 @@ class GuideCameraBase(BaseModel, abc.ABC):
         self._conf = ConfHandle(COMPONENT, "conf", GuideCameraConf)
         self._cal = ConfHandle(COMPONENT, "cal", GuideCameraCal)
         self._conf.before_change(self._accept)
+        self._life = Lifecycle(
+            COMPONENT,
+            lambda: self.activities,
+            startup=self.apply_conf,
+            shutdown=self._deactivate,
+            halt=self.stop,
+        )
+
+    # -- lifecycle ----------------------------------------------------------------------
+
+    @property
+    def life(self) -> Lifecycle:
+        """Startup, shutdown, ``opstate``, ``operational`` and ``why_not_operational``."""
+        return self._life
+
+    async def startup(self) -> LifecycleStatus:
+        """Put the stored settings on the hardware (the cooler starts) and become operational."""
+        return await self._life.startup()
+
+    async def shutdown(self, *, force: bool = False) -> LifecycleStatus:
+        """Stop, and switch the cooler off. The saved settings are not touched."""
+        return await self._life.shutdown(force=force)
+
+    def _deactivate(self) -> None:
+        if self.cooler_supported:
+            self._write_cooler(False, self._conf.current.cooler_setpoint_c)
+        self._cooler_cache = None
 
     @property
     def conf(self) -> ConfHandle[GuideCameraConf]:
@@ -313,7 +345,8 @@ class GuideCameraBase(BaseModel, abc.ABC):
         if "cooler_enabled" in changed or "cooler_setpoint_c" in changed:
             if not self.cooler_supported:
                 raise SettingError("this camera has no cooler")
-            self._write_cooler(new.cooler_enabled, new.cooler_setpoint_c)
+            if self._life.opstate is OpState.startedup:  # an inactive camera is not touched;
+                self._write_cooler(new.cooler_enabled, new.cooler_setpoint_c)  # startup applies it
             self._cooler_cache = None
             log.info(
                 "cooler %s, setpoint %.1f °C",
@@ -401,7 +434,9 @@ class GuideCameraBase(BaseModel, abc.ABC):
 
     async def single_frame(self) -> Frame:
         """A fresh exposure with the current settings. Raises :class:`CameraBusy` while
-        streaming, :class:`ExposureAborted` if :meth:`abort` cut it short."""
+        streaming, :class:`ExposureAborted` if :meth:`abort` cut it short, and ``409
+        not_operational`` until the camera is started up."""
+        self._life.require_operational()
         if self._streaming:
             raise CameraBusy("the guide camera is streaming")
         return await self._take()
@@ -450,6 +485,7 @@ class GuideCameraBase(BaseModel, abc.ABC):
 
     async def start(self) -> None:
         """Take frames continuously until :meth:`stop`. A no-op if already streaming."""
+        self._life.require_operational()
         if self._streaming:
             return
         if self._exposing:
@@ -493,6 +529,7 @@ class GuideCameraBase(BaseModel, abc.ABC):
             cal_version=self._cal.version,
             cooler=self.cooler(),
             last_frame_id=self._latest.meta.id if self._latest else None,
+            lifecycle=self._life.status(),
         )
 
 

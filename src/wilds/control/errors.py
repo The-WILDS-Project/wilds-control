@@ -17,6 +17,7 @@ ErrorCode = Literal[
     "busy",  # 409
     "stale",  # 409: the settings changed since the caller loaded them
     "invalid",  # 422
+    "not_operational",  # 409: the component is not started up or cannot take tasks now
     "not_calibrated",  # 409: a calibration value this needs has not been measured yet
     "refused",  # the TCS or a device said no
     "timeout",

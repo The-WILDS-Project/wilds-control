@@ -20,6 +20,7 @@ from ..filing import FilingStatus, get_filing
 from ..guide_camera import GuideCameraStatus, get_guide_camera
 from ..jobs import Job, manager
 from ..lease import state as lease
+from ..lifecycle import SystemStatus, system
 
 router = APIRouter(prefix="/status", tags=["status"])
 
@@ -71,6 +72,7 @@ class Status(BaseModel):
     time: ServerTime
     to: ToStatus = Field(default_factory=ToStatus)
     activities: dict[str, list[ActivityStatus]] = Field(default_factory=dict)  # running only
+    system: SystemStatus | None = None  # every component's opstate, operational and reasons
     guide_camera: GuideCameraStatus | None = None  # settings, streaming and the cooler
     conf_versions: dict[str, int] = Field(default_factory=dict)  # 'component/slice' -> version
     filing: FilingStatus | None = None  # staging, the data share, what waits to be delivered
@@ -101,6 +103,7 @@ def current_status() -> Status:
             ]
             for component, infos in registry.snapshot().items()
         },
+        system=system.status(),
         guide_camera=get_guide_camera().status(),
         conf_versions=confs.versions(),
         filing=filing,
