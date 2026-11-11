@@ -8,3 +8,7 @@ opmode = "development"  # the default; "production" refuses the /dev helpers
 # the settings database and the calibration store are under its var/lib) and
 # WILDS_LOIS_DATA_ROOT=~/wilds-dev/share (the "facility share"; "unplug" it by renaming the
 # folder, and watch files wait). See paths.py.
+
+[guide_camera]
+kind = "simulated"
+seed_simulated_calibration = true  # a slit, plate scale and orientation, so the overlay can be tried

@@ -75,6 +75,16 @@ def fresh_shutter():
 
 
 @pytest.fixture(autouse=True)
+def fresh_telescope():
+    """Each test builds its own telescope."""
+    from wilds.control import telescope
+
+    telescope.reset()
+    yield
+    telescope.reset()
+
+
+@pytest.fixture(autouse=True)
 def fresh_light_path():
     """Each test starts with the light path in an unknown state."""
     from wilds.control import light_path

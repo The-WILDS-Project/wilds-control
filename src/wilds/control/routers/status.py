@@ -23,6 +23,7 @@ from ..lease import state as lease
 from ..lifecycle import SystemStatus, system
 from ..light_path import LightPathStatus, get_light_path
 from ..shutter import ShutterStatus, get_shutter
+from ..telescope import TelescopeStatus, get_telescope
 
 router = APIRouter(prefix="/status", tags=["status"])
 
@@ -77,6 +78,9 @@ class Status(BaseModel):
     system: SystemStatus | None = None  # every component's opstate, operational and reasons
     guide_camera: GuideCameraStatus | None = None  # settings, streaming and the cooler
     shutter: ShutterStatus | None = None  # blade state and lifecycle
+    telescope: TelescopeStatus | None = (
+        None  # target, offsets, rotator, preview, what waits for the TO
+    )
     light_path: LightPathStatus | None = None  # lit, or blocked for darks (asked of the TO)
     conf_versions: dict[str, int] = Field(default_factory=dict)  # 'component/slice' -> version
     filing: FilingStatus | None = None  # staging, the data share, what waits to be delivered
@@ -85,9 +89,38 @@ class Status(BaseModel):
     actions: dict[str, Action] = Field(default_factory=dict)
 
 
+def _tcs(telescope) -> TcsStatus:
+    """The header's TCS pill, from the telescope (the simulator until the bridge is wired in)."""
+    t = telescope.telemetry()
+    stale = t.stale or not telescope.life.operational
+    return TcsStatus(
+        state=t.state,
+        health=t.health,
+        accessMode=t.access_mode,
+        preview=t.preview,
+        lockedOut=t.locked_out,
+        stale=stale,
+    )
+
+
+def _telescope_actions(telescope) -> dict[str, Action]:
+    """What may be sent to the telescope now, for the GUIs to grey out with the reason (plan
+    §3.12). A slew needs only that the telescope takes commands; the adjustments (offset,
+    rotator) also need a target it is on. Whether this browser's session holds control is the
+    GUI's own (local) check."""
+    why = telescope.why_not_available(engineering=lease.engineering)
+    adjust = why or telescope.why_not_on_target()
+    return {
+        "slew": Action(ok=not why, why=why or None),
+        "offset": Action(ok=not adjust, why=adjust or None),
+        "rotator": Action(ok=not adjust, why=adjust or None),
+    }
+
+
 def current_status() -> Status:
     # TODO: add the broker and devices
     lease.expire()
+    telescope = get_telescope()
     holder = lease.holder
     filing = get_filing().status()
     return Status(
@@ -111,6 +144,9 @@ def current_status() -> Status:
         guide_camera=get_guide_camera().status(),
         shutter=get_shutter().status(),
         light_path=get_light_path().status(),
+        telescope=telescope.status(),
+        tcs=_tcs(telescope),
+        actions=_telescope_actions(telescope),
         conf_versions=confs.versions(),
         filing=filing,
         jobs=manager.snapshot(),
