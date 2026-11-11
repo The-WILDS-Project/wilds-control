@@ -1,15 +1,10 @@
 # Development configuration for the VS Code launch entry (WILDS_CONTROL_CONFIG).
-# Deployed copies live in /etc/wilds/config.toml and are never committed.
+# Deployed copies live in $WILDS_ROOT/etc/config.toml and are never committed.
 # The passphrases are in WILDS/.vault/passphrases.toml (WILDS_CONTROL_PASSPHRASES).
 
 opmode = "development"  # the default; "production" refuses the /dev helpers
 
-# Filing (plan §3.15): files are staged locally and delivered to the share. In development both
-# are folders of yours; "unplug" the share by renaming its folder, and watch files wait.
-[filing]
-staging_root = "~/wilds-dev/staging"
-share_root = "~/wilds-dev/share"
-
-# Operational and calibration settings, written by the app (plan §3.10): one SQLite file.
-[store]
-path = "~/wilds-dev/settings.db"
+# Where the files go is not set here: the launch entry sets WILDS_ROOT=~/wilds-dev (staging,
+# the settings database and the calibration store are under its var/lib) and
+# WILDS_LOIS_DATA_ROOT=~/wilds-dev/share (the "facility share"; "unplug" it by renaming the
+# folder, and watch files wait). See paths.py.

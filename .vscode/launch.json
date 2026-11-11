@@ -10,6 +10,8 @@
       "python": "${workspaceFolder}/../.venv/bin/python",
       "cwd": "${workspaceFolder}",
       "env": {
+        "WILDS_ROOT": "${userHome}/wilds-dev",
+        "WILDS_LOIS_DATA_ROOT": "${userHome}/wilds-dev/share",
         "WILDS_CONTROL_CONFIG": "${workspaceFolder}/dev/config.toml",
         "WILDS_CONTROL_PASSPHRASES": "${workspaceFolder}/../.vault/passphrases.toml"
       },
