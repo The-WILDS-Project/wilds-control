@@ -73,10 +73,13 @@ class AstrometrySolver:
         if self._solver is None:
             from wilds.solving import PlateSolver
 
-            if not any((self.index_dir / "5200").glob("*.fits")):
+            if not any(
+                list((self.index_dir / "5200").glob(f"index-52{s:02d}-*.fits")) for s in self.scales
+            ):
                 raise SolveFailed(
-                    f"no astrometry.net index files in {self.index_dir / '5200'}: "
-                    "put the series 5200 files there (see [solver] in config.toml)"
+                    f"no astrometry.net index files for scales {sorted(self.scales)} in "
+                    f"{self.index_dir / '5200'}: put the series 5200 files there "
+                    "(see [solver] in config.toml)"
                 )
             self._solver = PlateSolver(self.index_dir, self.scales, download=False).__enter__()
         return self._solver
