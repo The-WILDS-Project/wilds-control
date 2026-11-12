@@ -22,6 +22,11 @@ dependencies = [
     "wilds-solving",
 ]
 
+[project.optional-dependencies]
+# Reading a catsHTM star catalogue (catalogs/catshtm.py), e.g. Gaia DR3 for the simulated camera's
+# real sky: not needed otherwise (it is imported when a catalogue is first read).
+catalogs = ["h5py>=3.10", "scipy>=1.11"]
+
 [dependency-groups]
 dev = [
     "pytest>=7.0",

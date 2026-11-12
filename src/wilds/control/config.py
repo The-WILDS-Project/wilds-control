@@ -67,6 +67,18 @@ class GuideCameraConfig(BaseModel):
     seed_simulated_calibration: bool = False
 
 
+class SkyConfig(BaseModel):
+    """Where the simulated guide camera gets real stars (plan §3.3); without a catalogue it draws an
+    invented field that no plate solver can match. Deployment settings: read at start-up."""
+
+    # The folder of a catsHTM catalogue, e.g. Gaia DR3 (MAST: \\\\last0\\catalogs\\GAIA\\DR3, here
+    # wherever the share is mounted). Empty: no catalogue.
+    gaia_root: Path | None = None
+    catalog_name: str = "GAIADR3"
+    mag_column: str = "phot_g_mean_mag"
+    mag_limit: float = Field(18.0, gt=0, le=22)  # the faintest star drawn
+
+
 class Filing(BaseModel):
     """Where data files are staged and delivered (plan §3.15). Deployment settings: read when
     wilds-control starts, so a change needs a restart."""
@@ -106,7 +118,27 @@ class Store(BaseModel):
         return v
 
 
-OpMode = Literal["development", "production"]
+# What WILDS runs against (plan §3.10):
+#   development    this machine, with in-process simulators of everything: the /dev helpers exist
+#   ldt-simulated  LDT's own simulators (the TCS and MCU on nysa) through the test broker (tanagra)
+#   ldt-production the real telescope, through its own broker (joe)
+OpMode = Literal["development", "ldt-simulated", "ldt-production"]
+
+# The broker hosts we know. A mode and its broker must agree, or wilds-control does not start: a
+# session meant for the simulators must never reach the real telescope, and the other way round.
+TEST_BROKER_HOSTS = frozenset({"tanagra", "tanagra.lowell.local"})
+
+
+class Broker(BaseModel):
+    """The LDT broker the telescope's messages go through (``[broker]``): needed, and checked
+    against the mode, when the mode is not ``development``. Deployment setting: read at start-up."""
+
+    host: str | None = None
+
+    @field_validator("host")
+    @classmethod
+    def _tidy(cls, v: str | None) -> str | None:
+        return v.strip().lower() or None if v else None
 
 
 class Startup(BaseModel):
@@ -118,15 +150,16 @@ class Startup(BaseModel):
 
 
 class Config(BaseModel):
-    # What this machine accepts: development-only helpers (the demo job) are refused in
-    # production. Development is the default so a bare checkout works; a deployed
-    # config.toml says "production".
+    # What this machine runs against, see OpMode. Development is the default so a bare checkout
+    # works; a deployed config.toml says "ldt-simulated" or "ldt-production".
     opmode: OpMode = "development"
+    broker: Broker = Broker()
     passphrases: Passphrases = Passphrases()  # from passphrases.toml, never from config.toml
     passphrases_in_config_toml: bool = False  # a [passphrases] there was ignored
     presence: Presence = Presence()
     site: Site = Site()
     guide_camera: GuideCameraConfig = GuideCameraConfig()
+    sky: SkyConfig = SkyConfig()
     filing: Filing = Field(default_factory=Filing)  # built per load: its paths follow the root
     store: Store = Field(default_factory=Store)
     startup: Startup = Startup()
@@ -136,18 +169,52 @@ class Config(BaseModel):
         return self.opmode == "development"
 
     @property
+    def uses_ldt(self) -> bool:
+        """Talks to an LDT broker (the simulators' or the telescope's), not in-process simulators."""
+        return self.opmode != "development"
+
+    def broker_problem(self) -> str:
+        """Why the mode and the broker do not fit, or ``""``."""
+        if not self.uses_ldt:
+            return ""
+        host = self.broker.host
+        if not host:
+            return f"opmode {self.opmode} needs [broker] host in config.toml"
+        test = host in TEST_BROKER_HOSTS
+        if self.opmode == "ldt-simulated" and not test:
+            return (
+                f"opmode ldt-simulated is for LDT's simulators, whose broker is "
+                f"{', '.join(sorted(TEST_BROKER_HOSTS))}, not '{host}'"
+            )
+        if self.opmode == "ldt-production" and test:
+            return f"opmode ldt-production would use the test broker '{host}': that is for ldt-simulated"
+        return ""
+
+    @property
     def autostart(self) -> bool:
         a = self.startup.autostart
         return self.is_development if a is None else a
 
     def warnings(self) -> list[str]:
         out = []
+        if self.uses_ldt:  # until LdtTelescope exists the telescope is still the in-process one
+            out.append(
+                f"opmode {self.opmode}, but the telescope is still the in-process simulator: "
+                "the LDT connection (wilds-bridge) is not wired in yet"
+            )
         if self.passphrases_in_config_toml:
             out.append(
                 "config.toml has a [passphrases] section, which is ignored; "
                 "passphrases are read from passphrases.toml"
             )
         return out
+
+
+def require_consistent_broker() -> None:
+    """Stop at start-up, with a clear message, if the mode and the broker do not agree (like
+    ``paths.require_root``): the one mistake that would put a test session on the telescope."""
+    if problem := get().broker_problem():
+        raise RuntimeError(problem)
 
 
 def _stat(path: Path) -> int | None:

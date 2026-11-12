@@ -1,4 +1,5 @@
-"""Development helpers, refused unless ``opmode`` in config.toml is ``development``.
+"""Development helpers, refused unless ``opmode`` in config.toml is ``development`` (not against LDT's
+simulators or the telescope: there the TO answers in the TCS itself).
 
 ``POST /dev/jobs/demo`` starts a made-up job ("testing 1 2 3") that raises activities on a few
 components and reports progress, so the GUI's pills, umbrella bars and Cancel can be watched

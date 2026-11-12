@@ -41,6 +41,7 @@ from .telescope import close_telescope, get_telescope
 async def lifespan(app: FastAPI):
     # TODO: initialise broker, solver
     paths.require_root()
+    config.require_consistent_broker()
     get_guide_camera()
     get_shutter()
     get_telescope()

@@ -2,7 +2,10 @@
 # Deployed copies live in $WILDS_ROOT/etc/config.toml and are never committed.
 # The passphrases are in WILDS/.vault/passphrases.toml (WILDS_CONTROL_PASSPHRASES).
 
-opmode = "development"  # the default; "production" refuses the /dev helpers
+# development: in-process simulators, the /dev helpers; ldt-simulated: LDT's simulators (nysa) through
+# the test broker (tanagra); ldt-production: the real telescope. The last two need [broker] host,
+# which must agree with the mode, or wilds-control does not start.
+opmode = "development"
 
 # Where the files go is not set here: the launch entry sets WILDS_ROOT=~/wilds-dev (staging,
 # the settings database and the calibration store are under its var/lib) and
@@ -12,3 +15,9 @@ opmode = "development"  # the default; "production" refuses the /dev helpers
 [guide_camera]
 kind = "simulated"
 seed_simulated_calibration = true  # a slit, plate scale and orientation, so the overlay can be tried
+
+# Real stars in the simulated guide camera: a catsHTM Gaia DR3 folder (MAST reads it from
+# \\last0\catalogs\GAIA\DR3; mount that share and point to it here; needs the "catalogs" extra:
+# uv sync --extra catalogs). Without it the camera draws an invented field no plate solver can match.
+# [sky]
+# gaia_root = "/Volumes/catalogs/GAIA/DR3"

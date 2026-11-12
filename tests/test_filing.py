@@ -257,7 +257,7 @@ def test_defaults_and_home_expansion(config_file):
     "bad", ['staging_root = "relative/dir"', "sweep_interval_s = 0", "disk_ceiling = 1.5"]
 )
 def test_a_bad_filing_setting_rejects_the_file(config_file, bad, caplog):
-    config_file(f'opmode = "production"\n[filing]\n{bad}\n')
+    config_file(f'opmode = "ldt-production"\n[filing]\n{bad}\n')
     assert config.get().opmode == "development"  # rejected whole, defaults kept
 
 

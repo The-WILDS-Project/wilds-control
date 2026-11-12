@@ -1,5 +1,7 @@
 """The guide camera: an abstract base, a simulator, and the one instance the app uses."""
 
+import logging
+
 from .. import config
 from ..conf import confs
 from ..lifecycle import system
@@ -23,6 +25,8 @@ from .base import (
     SettingsUpdate,
 )
 from .simulated import SimulatedASICamera
+
+log = logging.getLogger(__name__)
 
 __all__ = [
     "ASICamera",
@@ -71,6 +75,8 @@ def get_guide_camera() -> GuideCameraBase:
             _seed_simulated_calibration(camera)
         if isinstance(camera, SimulatedASICamera):
             camera.field = lambda: simulated_field(camera)
+            if (sky := _make_sky()) is not None:
+                camera.sky = lambda: real_sky(camera, sky)
         system.register(camera.life)  # started up by the system (or by hand), not here
         _camera = camera
     return _camera
@@ -106,6 +112,49 @@ def simulated_field(camera: SimulatedASICamera) -> tuple[float, float, float, fl
     dx = -(d1 * e_img[0] + d2 * n_img[0]) / scale
     dy = -(d1 * e_img[1] + d2 * n_img[1]) / scale
     return dx, dy, -parity * pa, centre[0], centre[1]
+
+
+def _make_sky():
+    """The configured star catalogue as a ``Sky``, or ``None`` (no ``[sky] gaia_root``, or it is
+    not a folder): the simulated camera then draws its invented field."""
+    from ..sky import CatsHtmSource, Sky
+    from .simulated import SENSOR
+
+    cfg = config.get().sky
+    if cfg.gaia_root is None:
+        return None
+    if not cfg.gaia_root.is_dir():
+        log.warning(
+            "[sky] gaia_root %s is not a folder: using the invented star field", cfg.gaia_root
+        )
+        return None
+    source = CatsHtmSource(str(cfg.gaia_root), cfg.catalog_name, cfg.mag_column, cfg.mag_limit)
+    return Sky(source, SENSOR)
+
+
+def real_sky(camera: SimulatedASICamera, sky):
+    """The real stars of the frame for the simulated camera, or ``None`` (no target yet, or the
+    catalogue could not be read): see ``SimulatedASICamera.sky`` and ``sky.py``."""
+    from ..sky import Geometry, pointing_after_offsets
+    from ..telescope import get_telescope
+    from .simulated import SENSOR
+
+    t = get_telescope().telemetry()
+    if t.target is None:
+        return None
+    cal = camera.cal.current
+    geo = Geometry(
+        plate_scale_arcsec_px=cal.plate_scale_arcsec_px or 0.25,
+        slit_x=cal.slit_pixel_x if cal.slit_pixel_x is not None else SENSOR[0] / 2,
+        slit_y=cal.slit_pixel_y if cal.slit_pixel_y is not None else SENSOR[1] / 2,
+        orientation_deg=cal.orientation_deg or 0.0,
+        parity=cal.parity or 1,
+        pa_deg=t.rot_pa or 0.0,
+    )
+    east = sum(o.d1_arcsec for o in t.offsets.values())
+    north = sum(o.d2_arcsec for o in t.offsets.values())
+    ra, dec = pointing_after_offsets(t.target.ra_hours * 15.0, t.target.dec_deg, east, north)
+    return sky.stars_for(ra, dec, geo)
 
 
 def _seed_simulated_calibration(camera: SimulatedASICamera) -> None:

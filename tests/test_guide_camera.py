@@ -485,7 +485,7 @@ def test_the_cooler_choice_is_kept_and_put_back_on_the_hardware_at_startup(clien
 
 
 def test_in_production_the_cooler_starts_off_until_someone_switches_it_on(config_file):
-    config_file('opmode = "production"\n')
+    config_file('opmode = "ldt-production"\n[broker]\nhost = "joe"\n')
     cam = guide_camera.get_guide_camera()
     assert cam.conf.current.cooler_enabled is False and cam.cooler().state == "off"
 
