@@ -154,8 +154,8 @@ def test_a_passphrases_section_in_config_toml_is_ignored_with_a_warning(
 
 def test_each_file_applies_on_its_own(config_file, passphrases_file):
     passphrases_file('[passphrases]\nto = "t"\n')
-    config_file('opmode = "production"\n')
-    assert config.get().opmode == "production" and config.check_to("t")
+    config_file('opmode = "ldt-production"\n')
+    assert config.get().opmode == "ldt-production" and config.check_to("t")
     config_file('opmode = "development"\n')  # the passphrases file is untouched
     assert config.get().opmode == "development" and config.check_to("t")
     passphrases_file('[passphrases]\nto = "u"\n')  # and the other way round
@@ -166,7 +166,7 @@ def test_the_passphrases_file_holds_nothing_but_the_section(passphrases_file, ca
     passphrases_file('[passphrases]\nengineering = "one"\n')
     assert config.check_engineering("one")
     with caplog.at_level(logging.ERROR):
-        passphrases_file('opmode = "production"\n[passphrases]\nengineering = "two"\n')
+        passphrases_file('opmode = "ldt-production"\n[passphrases]\nengineering = "two"\n')
         assert config.check_engineering("one")  # rejected whole, the running one kept
     assert "rejected" in caplog.text
 
@@ -178,3 +178,58 @@ def test_a_broken_config_toml_keeps_the_passphrases_too(config_file, passphrases
         config_file("opmode = ")
         assert config.check_engineering("one")
     assert "rejected" in caplog.text
+
+
+# -- the three modes and their brokers ----------------------------------------------------------
+
+
+def test_the_three_modes_and_what_they_use(config_file):
+    config_file('opmode = "ldt-simulated"\n[broker]\nhost = "Tanagra"\n')
+    cfg = config.get()
+    assert cfg.opmode == "ldt-simulated" and cfg.uses_ldt and not cfg.is_development
+    assert cfg.broker.host == "tanagra" and cfg.broker_problem() == ""
+    assert not cfg.autostart  # only development starts everything up by itself
+    config_file("")
+    assert config.get().opmode == "development" and not config.get().uses_ldt
+    assert config.get().broker_problem() == "" and config.get().autostart
+
+
+@pytest.mark.parametrize(
+    ("mode", "host", "fragment"),
+    [
+        ("ldt-simulated", None, "needs [broker] host"),
+        ("ldt-production", None, "needs [broker] host"),
+        ("ldt-simulated", "joe", "not 'joe'"),
+        ("ldt-production", "tanagra.lowell.local", "test broker"),
+    ],
+)
+def test_a_mode_and_its_broker_must_agree(config_file, mode, host, fragment):
+    broker = f'\n[broker]\nhost = "{host}"\n' if host else "\n"
+    config_file(f'opmode = "{mode}"{broker}')
+    assert fragment in config.get().broker_problem()
+    with pytest.raises(RuntimeError, match=fragment.replace("[", r"\[").replace("]", r"\]")):
+        config.require_consistent_broker()
+
+
+def test_development_ignores_the_broker_and_the_matching_pairs_pass(config_file):
+    config_file('[broker]\nhost = "joe"\n')  # development: the broker is not used
+    config.require_consistent_broker()
+    config_file('opmode = "ldt-production"\n[broker]\nhost = "joe"\n')
+    config.require_consistent_broker()
+
+
+def test_the_old_mode_name_production_is_rejected_with_the_new_ones_listed(config_file):
+    config_file('opmode = "ldt-production"\n[broker]\nhost = "joe"\n')
+    assert config.get().opmode == "ldt-production"
+    config_file('opmode = "production"\n')  # rejected whole: the running mode is kept
+    assert config.get().opmode == "ldt-production"
+
+
+def test_control_does_not_start_when_the_broker_is_the_wrong_one_for_the_mode(config_file):
+    from fastapi.testclient import TestClient
+
+    from wilds.control.app import create_app
+
+    config_file('opmode = "ldt-simulated"\n[broker]\nhost = "joe"\n')
+    with pytest.raises(RuntimeError, match="not 'joe'"), TestClient(create_app()):
+        pass

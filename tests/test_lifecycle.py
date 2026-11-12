@@ -287,7 +287,7 @@ def test_in_development_the_app_starts_everything_up_at_boot(make_client):
 
 
 def test_in_production_nothing_starts_until_told(make_client):
-    with make_client('opmode = "production"') as c:
+    with make_client('opmode = "ldt-production"\n[broker]\nhost = "joe"\n') as c:
         cam = c.get("/guide-camera").json()
         assert cam["lifecycle"]["opstate"] == "initialized" and not cam["lifecycle"]["operational"]
         r = c.post("/guide-camera/frames", headers=hold_lease(c))
@@ -296,14 +296,16 @@ def test_in_production_nothing_starts_until_told(make_client):
 
 
 def test_autostart_can_be_set_either_way(make_client):
-    with make_client('opmode = "production"\n[startup]\nautostart = true\n') as c:
+    with make_client(
+        'opmode = "ldt-production"\n[broker]\nhost = "joe"\n[startup]\nautostart = true\n'
+    ) as c:
         assert c.get("/system").json()["operational"]
     with make_client("[startup]\nautostart = false\n") as c:
         assert not c.get("/system").json()["operational"]
 
 
 def test_the_telescope_operator_can_start_everything_up_with_no_session(make_client):
-    with make_client('opmode = "production"') as c:
+    with make_client('opmode = "ldt-production"\n[broker]\nhost = "joe"\n') as c:
         r = c.post("/system/startup", headers=TO)
         assert r.status_code == 202 and r.json()["started_by"] == {
             "name": "Telescope Operator",
@@ -315,7 +317,7 @@ def test_the_telescope_operator_can_start_everything_up_with_no_session(make_cli
 
 
 def test_the_holder_of_control_can_too_and_nobody_else(make_client):
-    with make_client('opmode = "production"') as c:
+    with make_client('opmode = "ldt-production"\n[broker]\nhost = "joe"\n') as c:
         assert c.post("/system/startup").status_code == 403
         assert c.post("/system/startup", headers={"X-TO-Passphrase": "nope"}).status_code == 403
         h = hold_lease(c)
@@ -325,7 +327,7 @@ def test_the_holder_of_control_can_too_and_nobody_else(make_client):
 
 
 def test_one_component_by_name_and_an_unknown_one(make_client):
-    with make_client('opmode = "production"') as c:
+    with make_client('opmode = "ldt-production"\n[broker]\nhost = "joe"\n') as c:
         assert c.post("/system/nope/startup", headers=TO).status_code == 404
         r = c.post("/system/guide-camera/startup", headers=TO)
         job = wait_job(c, r.json()["id"])
@@ -356,7 +358,7 @@ def test_shutdown_refuses_a_streaming_camera_unless_forced(make_client):
 
 
 def test_the_wilds_umbrella_shows_in_the_activities_during_startup(make_client):
-    with make_client('opmode = "production"') as c:
+    with make_client('opmode = "ldt-production"\n[broker]\nhost = "joe"\n') as c:
         cam = guide_camera.get_guide_camera()
         cam.life._startup = lambda: time.sleep(0.3)
         job = c.post("/system/startup", headers=TO).json()
@@ -371,7 +373,7 @@ def test_the_wilds_umbrella_shows_in_the_activities_during_startup(make_client):
 def test_an_unstarted_camera_is_not_touched_by_a_settings_change_but_startup_applies_it(
     make_client,
 ):
-    with make_client('opmode = "production"') as c:
+    with make_client('opmode = "ldt-production"\n[broker]\nhost = "joe"\n') as c:
         cam = guide_camera.get_guide_camera()
         h = hold_lease(c)
         r = c.put("/guide-camera/cooler", json={"enabled": True, "setpoint_c": -20}, headers=h)

@@ -67,7 +67,7 @@ def test_fields_describe_themselves_for_the_gui_form():
 def test_a_default_can_depend_on_the_opmode(config_file):
     config_file('opmode = "development"\n')
     assert CamConf().cooler_enabled is True
-    config_file('opmode = "production"\n')
+    config_file('opmode = "ldt-production"\n')
     assert CamConf().cooler_enabled is False
 
 

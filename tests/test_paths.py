@@ -54,10 +54,10 @@ def test_the_two_files_default_under_etc_unless_named(monkeypatch, wilds_root, t
     monkeypatch.delenv("WILDS_CONTROL_CONFIG")
     monkeypatch.delenv("WILDS_CONTROL_PASSPHRASES")
     (wilds_root / "etc").mkdir(parents=True)
-    (wilds_root / "etc" / "config.toml").write_text('opmode = "production"\n')
+    (wilds_root / "etc" / "config.toml").write_text('opmode = "ldt-production"\n')
     (wilds_root / "etc" / "passphrases.toml").write_text('[passphrases]\nto = "from-etc"\n')
     cfg = config.get()
-    assert cfg.opmode == "production" and cfg.passphrases.to == "from-etc"
+    assert cfg.opmode == "ldt-production" and cfg.passphrases.to == "from-etc"
 
 
 def test_a_missing_root_stops_the_start_and_says_what_to_set(monkeypatch, tmp_path):
