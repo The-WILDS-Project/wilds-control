@@ -30,7 +30,7 @@ def require_development() -> None:
 
 router = APIRouter(prefix="/dev", tags=["dev"], dependencies=[Depends(require_development)])
 
-COMPONENTS = ("slit", "adc", "lamps")  # not the guide camera: that has real activities
+COMPONENTS = ("focuser", "adc", "lamps")  # not the guide camera: that has real activities
 
 
 class DemoActivity(Enum):
@@ -65,7 +65,7 @@ async def _demo(ctx: JobContext, outcome: str, seconds: float) -> dict[str, str]
 
 
 async def _steps(ctx: JobContext, outcome: str, seconds: float) -> dict[str, str]:
-    """Three phases: slit and ADC move, then the lamps flash, then a last bit."""
+    """Three phases: focuser and ADC move, then the lamps flash, then a last bit."""
     third = seconds / 3
     tick = 0.25
 
@@ -75,10 +75,10 @@ async def _steps(ctx: JobContext, outcome: str, seconds: float) -> dict[str, str
             await ctx.sleep(tick)
             ctx.progress((n + min(1.0, (i + 1) * tick / third)) / 3)
 
-    ctx.start_activity("slit", DemoActivity.Moving, details=["testing 1"])
+    ctx.start_activity("focuser", DemoActivity.Moving, details=["testing 1"])
     ctx.start_activity("adc", DemoActivity.Moving, details=["testing 2"])
     await phase(0, "testing 1 2")
-    ctx.end_activity("slit", DemoActivity.Moving)
+    ctx.end_activity("focuser", DemoActivity.Moving)
     ctx.start_activity("lamps", DemoActivity.Exposing, details=["testing 3"])
     await phase(1, "testing 3")
     ctx.end_activity("adc", DemoActivity.Moving)

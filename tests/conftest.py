@@ -75,6 +75,28 @@ def fresh_shutter():
 
 
 @pytest.fixture(autouse=True)
+def fresh_slit():
+    """Each test builds its own slit stage."""
+    from wilds.control import slit
+
+    slit.reset()
+    yield
+    slit.reset()
+
+
+@pytest.fixture(autouse=True)
+def fresh_field_solver():
+    """Each test builds its own plate solver."""
+    from wilds.control import field_solver, optics_calibration
+
+    field_solver.reset()
+    optics_calibration.reset()
+    yield
+    field_solver.reset()
+    optics_calibration.reset()
+
+
+@pytest.fixture(autouse=True)
 def fresh_telescope():
     """Each test builds its own telescope."""
     from wilds.control import telescope

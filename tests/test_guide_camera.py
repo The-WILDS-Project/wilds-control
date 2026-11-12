@@ -530,7 +530,7 @@ def test_calibration_values_start_unset_and_a_procedure_that_needs_one_is_refuse
 def test_the_handles_are_in_the_registry_for_the_config_endpoints(client):
     from wilds.control.conf import confs
 
-    assert confs.components() == ["guide-camera", "shutter", "telescope"]
+    assert confs.components() == ["guide-camera", "shutter", "slit", "telescope"]
     assert confs.slices("guide-camera") == [
         "cal",
         "conf",
@@ -621,6 +621,7 @@ def _brightest(camera) -> tuple[int, int]:
 def _still_camera(**kwargs):
     camera = SimulatedASICamera(jitter_px=0.0, drift_x_px_s=0.0, drift_y_px_s=0.0, **kwargs)
     camera.seeing_fwhm_px = 3.0
+    camera._rng = np.random.default_rng(7)  # the same seeing every time: no two stars swap places
     return camera
 
 
@@ -639,11 +640,14 @@ def test_the_telescopes_offsets_and_rotator_move_the_simulated_camera_field(clie
     import math
 
     from wilds.control import telescope
-    from wilds.control.guide_camera import _seed_simulated_calibration, simulated_field
+    from wilds.control.guide_camera import simulated_field
+    from wilds.control.guide_camera.optics import SimulatedOptics
     from wilds.control.telescope import Offset, Target
 
     camera = guide_camera.get_guide_camera()
-    _seed_simulated_calibration(camera)  # 0.25"/px, north 25 degrees CCW, parity +1
+    camera.optics = SimulatedOptics(  # 0.25"/px, north 25 degrees CCW, parity +1, slit mid-frame
+        plate_scale_arcsec_px=0.25, orientation_deg=25.0, slit_x_px=648.0, slit_y_px=441.0
+    )
     tel = telescope.get_telescope()
     assert simulated_field(camera)[:3] == (0.0, 0.0, 0.0)  # nothing moved yet
     tel.set_preview(False)

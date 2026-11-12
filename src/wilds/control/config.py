@@ -74,9 +74,24 @@ class SkyConfig(BaseModel):
     # The folder of a catsHTM catalogue, e.g. Gaia DR3 (MAST: \\\\last0\\catalogs\\GAIA\\DR3, here
     # wherever the share is mounted). Empty: no catalogue.
     gaia_root: Path | None = None
+    # A star field saved on local disk by ``python -m wilds.control.fetch_field`` (M13 by
+    # default). When the file exists it is the data set: no share and no h5py needed.
+    field_file: Path | None = None
     catalog_name: str = "GAIADR3"
     mag_column: str = "phot_g_mean_mag"
     mag_limit: float = Field(18.0, gt=0, le=22)  # the faintest star drawn
+
+
+class SolverConfig(BaseModel):
+    """The plate solver the optics calibration uses (plan §3.3). Deployment settings."""
+
+    # "astrometry" is wilds-solving over astrometry.net index files (series 5200); "simulated"
+    # answers from the simulated camera's own hidden optics, for a machine with no index files.
+    kind: Literal["astrometry", "simulated"] = "astrometry"
+    # Where the index files are ($WILDS_ASTROMETRY_CACHE, else ~/.astrometry); never downloaded
+    # here: the files are large, fetch them on purpose.
+    index_dir: Path | None = None
+    scales: list[int] = Field(default_factory=lambda: [0, 1, 2])  # series 5200 scale numbers
 
 
 class Filing(BaseModel):
@@ -160,6 +175,7 @@ class Config(BaseModel):
     site: Site = Site()
     guide_camera: GuideCameraConfig = GuideCameraConfig()
     sky: SkyConfig = SkyConfig()
+    solver: SolverConfig = SolverConfig()
     filing: Filing = Field(default_factory=Filing)  # built per load: its paths follow the root
     store: Store = Field(default_factory=Store)
     startup: Startup = Startup()

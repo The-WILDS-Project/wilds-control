@@ -189,9 +189,11 @@ def test_the_camera_without_a_sky_still_draws_its_invented_field():
 def test_the_cameras_real_sky_follows_the_telescopes_target_pointing_and_rotator():
     from wilds.control import guide_camera, telescope
     from wilds.control.guide_camera import real_sky
+    from wilds.control.guide_camera.optics import SimulatedOptics
     from wilds.control.telescope import Offset, Target
 
     camera = guide_camera.get_guide_camera()
+    camera.optics = SimulatedOptics(slit_x_px=648.0, slit_y_px=441.0)  # mid-frame, as the stars
     s = Sky(CountingSource(), SENSOR)
     tel = telescope.get_telescope()
     tel.set_preview(False)
@@ -203,3 +205,28 @@ def test_the_cameras_real_sky_follows_the_telescopes_target_pointing_and_rotator
     tel._send_offset("Handset", Offset(d1_arcsec=5.0, d2_arcsec=0.0), "TPLANE")
     x2, _, _ = real_sky(camera, s)
     assert x2.max() > x.max() - 1e-9 and not np.allclose(np.sort(x2), np.sort(x))  # the field moved
+
+
+def test_a_saved_field_is_read_back_and_answers_cones_inside_it(tmp_path):
+    stars = sky.Stars(
+        np.array([250.40, 250.42, 251.5]),
+        np.array([36.45, 36.46, 36.46]),
+        np.array([12.0, 15.0, 9.0]),
+    )
+    path = tmp_path / "m13.npz"
+    sky.save_field(path, 250.42, 36.46, 0.5, stars)
+    source = sky.FieldFileSource(path)
+    assert source.centre == (250.42, 36.46) and source.radius_deg == 0.5
+    got = source.cone(250.41, 36.455, 0.1)
+    assert sorted(got.mag.tolist()) == [12.0, 15.0]  # the one at 251.5 is outside the cone
+    assert len(source.cone(10.0, -20.0, 0.1)) == 0  # nothing outside the saved field
+
+
+def test_a_relative_field_file_is_found_from_the_checkout_wherever_the_server_starts(
+    config_file, tmp_path, monkeypatch
+):
+    from wilds.control import guide_camera
+
+    config_file('[sky]\nfield_file = "data/sky/m13.npz"\n')
+    monkeypatch.chdir(tmp_path)  # not the control folder
+    assert guide_camera._make_sky() is not None

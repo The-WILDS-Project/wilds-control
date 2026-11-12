@@ -165,6 +165,15 @@ class GuideCameraCal(ConfModel):
     parity: Literal[1, -1] | None = setting(
         None, label="Parity", help="-1 if the image is mirrored"
     )
+    slit_angle_deg: float | None = setting(
+        None,
+        unit="°",
+        label="Slit angle",
+        help="Angle from the top of the image to the slit's long axis, counter-clockwise on the "
+        "screen, as measured from the slit's shadow. The slit and the camera turn together, so "
+        "this does not change with the PA. Empty: the orientation (the slit points north at "
+        "PA 0)",
+    )
     slit_length_arcsec: float | None = setting(
         None, unit="arcsec", label="Slit length", help="Drawn on the live view", gt=0
     )
@@ -534,6 +543,18 @@ class GuideCameraBase(BaseModel, abc.ABC):
         if publish:
             self._publish(frame)
         return frame
+
+    async def exposure(self, settings: CaptureSettings) -> Frame:
+        """One exposure with exactly ``settings`` (a procedure's own, not the ``single_frame``
+        group), shown to every viewer like any frame. Raises :class:`CameraBusy` while
+        streaming, :class:`SettingError` for a window outside the sensor,
+        :class:`ExposureAborted` if :meth:`abort` cut it short, ``409 not_operational`` until the
+        camera is started up."""
+        self._life.require_operational()
+        if self._streaming:
+            raise CameraBusy("the guide camera is streaming")
+        self._check_roi_of(settings, "exposure")
+        return await self._take("single_frame", settings)
 
     async def calibration_frame(self, kind: CalibrationKind, settings: CaptureSettings) -> Frame:
         """A dark or bias frame with exactly ``settings``. The caller has blocked the light path

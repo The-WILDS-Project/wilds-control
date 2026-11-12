@@ -1,6 +1,7 @@
 """The guide camera: an abstract base, a simulator, and the one instance the app uses."""
 
 import logging
+from pathlib import Path
 
 from .. import config
 from ..conf import confs
@@ -74,6 +75,9 @@ def get_guide_camera() -> GuideCameraBase:
         ):
             _seed_simulated_calibration(camera)
         if isinstance(camera, SimulatedASICamera):
+            from ..slit import get_slit
+
+            camera.slit_width = lambda: get_slit().width_arcsec
             camera.field = lambda: simulated_field(camera)
             if (sky := _make_sky()) is not None:
                 camera.sky = lambda: real_sky(camera, sky)
@@ -86,21 +90,15 @@ def simulated_field(camera: SimulatedASICamera) -> tuple[float, float, float, fl
     """How the simulated telescope has moved the simulated camera's field (see
     ``SimulatedASICamera.field``): the rotator turns the image about the slit (the camera is on
     the instrument), and the pointing offsets shift the stars the other way. Uses the camera's
-    calibration (plate scale, orientation, parity, slit pixel) for the geometry; zeros until
-    there is a telescope to follow."""
+    true optics (plate scale, orientation, parity, slit pixel), not the stored calibration, which
+    is what a calibration has to find."""
     import math
 
     from ..telescope import get_telescope
-    from .simulated import SENSOR
 
-    cal = camera.cal.current
-    scale = cal.plate_scale_arcsec_px or 0.25
-    parity = cal.parity or 1
-    theta0 = cal.orientation_deg or 0.0
-    centre = (
-        cal.slit_pixel_x if cal.slit_pixel_x is not None else SENSOR[0] / 2,
-        cal.slit_pixel_y if cal.slit_pixel_y is not None else SENSOR[1] / 2,
-    )
+    o = camera.optics  # the true geometry, not the stored calibration
+    scale, parity, theta0 = o.plate_scale_arcsec_px, o.parity, o.orientation_deg
+    centre = (o.slit_x_px, o.slit_y_px)
     t = get_telescope().telemetry()
     pa = t.rot_pa or 0.0
     north = -math.radians(theta0 - parity * pa)  # clockwise on the screen, as slit.js has it
@@ -117,10 +115,17 @@ def simulated_field(camera: SimulatedASICamera) -> tuple[float, float, float, fl
 def _make_sky():
     """The configured star catalogue as a ``Sky``, or ``None`` (no ``[sky] gaia_root``, or it is
     not a folder): the simulated camera then draws its invented field."""
-    from ..sky import CatsHtmSource, Sky
+    from ..sky import CatsHtmSource, FieldFileSource, Sky
     from .simulated import SENSOR
 
     cfg = config.get().sky
+    if cfg.field_file is not None:
+        path = cfg.field_file
+        if not path.is_absolute() and not path.exists():  # relative to the checkout, not the cwd
+            path = Path(__file__).resolve().parents[4] / path
+        if path.is_file():
+            return Sky(FieldFileSource(path), SENSOR)
+        log.warning("[sky] field_file %s is not a file: looking for a catalogue", cfg.field_file)
     if cfg.gaia_root is None:
         return None
     if not cfg.gaia_root.is_dir():
@@ -137,18 +142,17 @@ def real_sky(camera: SimulatedASICamera, sky):
     catalogue could not be read): see ``SimulatedASICamera.sky`` and ``sky.py``."""
     from ..sky import Geometry, pointing_after_offsets
     from ..telescope import get_telescope
-    from .simulated import SENSOR
 
     t = get_telescope().telemetry()
     if t.target is None:
         return None
-    cal = camera.cal.current
+    o = camera.optics  # the true geometry, not the stored calibration
     geo = Geometry(
-        plate_scale_arcsec_px=cal.plate_scale_arcsec_px or 0.25,
-        slit_x=cal.slit_pixel_x if cal.slit_pixel_x is not None else SENSOR[0] / 2,
-        slit_y=cal.slit_pixel_y if cal.slit_pixel_y is not None else SENSOR[1] / 2,
-        orientation_deg=cal.orientation_deg or 0.0,
-        parity=cal.parity or 1,
+        plate_scale_arcsec_px=o.plate_scale_arcsec_px,
+        slit_x=o.slit_x_px,
+        slit_y=o.slit_y_px,
+        orientation_deg=o.orientation_deg,
+        parity=o.parity,
         pa_deg=t.rot_pa or 0.0,
     )
     east = sum(o.d1_arcsec for o in t.offsets.values())
@@ -158,8 +162,9 @@ def real_sky(camera: SimulatedASICamera, sky):
 
 
 def _seed_simulated_calibration(camera: SimulatedASICamera) -> None:
-    """Where the slit is, in the simulated camera's own frame, so the live view's slit overlay
-    can be drawn before anyone has measured a real one. Only when nothing is set yet."""
+    """A rough first guess at the geometry (a little off the simulator's true optics, which are
+    hidden), so the live view's slit overlay can be drawn before the calibration has measured
+    anything: it is close, and the calibration visibly improves it. Only when nothing is set."""
     from ..jobs import StartedBy
     from .simulated import SENSOR
 
@@ -173,7 +178,7 @@ def _seed_simulated_calibration(camera: SimulatedASICamera) -> None:
             "orientation_deg": 25.0,
             "parity": 1,
             "slit_length_arcsec": 30.0,
-            "slit_width_arcsec": 1.5,
+            "slit_width_arcsec": 1.0,
         },
         who=StartedBy(name="simulator", code="SIM"),
         reason="simulated defaults",
