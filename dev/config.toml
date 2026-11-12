@@ -19,5 +19,17 @@ seed_simulated_calibration = true  # a slit, plate scale and orientation, so the
 # Real stars in the simulated guide camera: a catsHTM Gaia DR3 folder (MAST reads it from
 # \\last0\catalogs\GAIA\DR3; mount that share and point to it here; needs the "catalogs" extra:
 # uv sync --extra catalogs). Without it the camera draws an invented field no plate solver can match.
-# [sky]
+# The data set is the M13 field saved locally by:
+#   python -m wilds.control.fetch_field /Volumes/catalogs/GAIA/DR3 data/sky/m13.npz
+[sky]
+field_file = "data/sky/m13.npz"
 # gaia_root = "/Volumes/catalogs/GAIA/DR3"
+
+# The plate solver the optics calibration uses. "astrometry" is wilds-solving over astrometry.net
+# index files (series 5200, in $WILDS_ASTROMETRY_CACHE or ~/.astrometry); "simulated" answers from
+# the simulated camera's own optics, for a machine with no index files. For the real solver on the
+# simulated M13 field: kind = "astrometry", index_dir = "~/.astrometry", scales = [0, 1], with
+# index-5200-10.fits and index-5201-10.fits (M13's tile) in its 5200 folder. The job's
+# nominal_scale_arcsec_px must then be given (the simulator is 0.27"/px, the design value 0.037).
+[solver]
+kind = "simulated"

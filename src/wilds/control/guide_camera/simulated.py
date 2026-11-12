@@ -17,6 +17,10 @@ view.
 config.toml) the stars are those of the catalogue around where the telescope points, so the
 frame changes with the target and a plate solver can match it.
 
+**Slit shadow.** The slit is a gap in a reflective plate: the sky seen in it goes on to the
+spectrograph, so the gap is dark in the guide camera. ``slit_width`` (the slit stage's gap) and the
+true ``optics`` make that shadow; stars and sky are dimmed in it, the dark current is not.
+
 **Pacing.** A frame takes its exposure time, or the time to draw it if that is longer, as a
 real camera's video mode does: about 30 fps at the shortest exposures.
 
@@ -36,12 +40,13 @@ import numpy as np
 from pydantic import Field, PrivateAttr
 
 from .base import CaptureSettings, ExposureAborted, GuideCameraBase
+from .optics import SimulatedOptics
 
 SENSOR = (1296, 882)  # a fifth of the ASI294MM's 4144 x 2822: cheap to draw and to encode
 MAX_DELTA_C = 35.0  # the ASI294MM Pro cools about this far below ambient
 STARS = 150
 MAX_DRAWN = 800  # the brightest real stars drawn in a frame
-SKY_E_PER_S = 2.0
+SKY_E_PER_S = 20.0  # bright enough that the slit gap stands out against the jaws
 IMAGE_MOTION_SHARE = 0.05  # per-star scatter around the common image motion, in jitter_px
 DARK_E_PER_S_AT_20C = 0.4
 READ_NOISE = 3.0
@@ -72,6 +77,11 @@ class SimulatedASICamera(GuideCameraBase):
     sky: Callable[[], tuple[np.ndarray, np.ndarray, np.ndarray] | None] = Field(
         default=lambda: None, exclude=True
     )
+
+    # The true geometry (see optics.py) and the slit stage's gap in arcsec, for the slit's shadow
+    # (None: no gap, as when the stage is moving). The app wires the width to the slit stage.
+    optics: SimulatedOptics = Field(default_factory=SimulatedOptics)
+    slit_width: Callable[[], float | None] = Field(default=lambda: None, exclude=True)
 
     _stars: tuple[np.ndarray, np.ndarray, np.ndarray] = PrivateAttr()  # x, y, flux (e/s)
     _drift: list[float] = PrivateAttr(default_factory=lambda: [0.0, 0.0])
@@ -155,7 +165,7 @@ class SimulatedASICamera(GuideCameraBase):
         if self.light_blocked():
             canvas = np.full((h, w), dark * s.exposure_s, np.float32)
             return _bin(canvas, s.binning)
-        canvas = np.full((h, w), (SKY_E_PER_S + dark) * s.exposure_s, np.float32)
+        canvas = np.full((h, w), SKY_E_PER_S * s.exposure_s, np.float32)
 
         seeing = self.seeing_fwhm_px / 2.355 * (1 + 0.1 * rng.standard_normal())  # this frame's
         sigma = max(0.5, math.hypot(seeing, self.defocus_px))
@@ -184,6 +194,9 @@ class SimulatedASICamera(GuideCameraBase):
             canvas[ys[0] : ys[-1] + 1, xs[0] : xs[-1] + 1] += (
                 flux * s.exposure_s / (2 * math.pi * sigma**2) * np.outer(gy, gx)
             )
+        canvas = (
+            canvas * self.optics.shadow(self.slit_width(), (h, w), x0, y0) + dark * s.exposure_s
+        )
         return _bin(canvas, s.binning)
 
     def _expose(self, settings: CaptureSettings) -> np.ndarray:

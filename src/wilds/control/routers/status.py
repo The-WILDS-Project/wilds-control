@@ -23,6 +23,7 @@ from ..lease import state as lease
 from ..lifecycle import SystemStatus, system
 from ..light_path import LightPathStatus, get_light_path
 from ..shutter import ShutterStatus, get_shutter
+from ..slit import SlitStatus, get_slit
 from ..telescope import TelescopeStatus, get_telescope
 
 router = APIRouter(prefix="/status", tags=["status"])
@@ -78,6 +79,7 @@ class Status(BaseModel):
     system: SystemStatus | None = None  # every component's opstate, operational and reasons
     guide_camera: GuideCameraStatus | None = None  # settings, streaming and the cooler
     shutter: ShutterStatus | None = None  # blade state and lifecycle
+    slit: SlitStatus | None = None  # stage position in µm, the gap in arcsec, presets
     telescope: TelescopeStatus | None = (
         None  # target, offsets, rotator, preview, what waits for the TO
     )
@@ -143,6 +145,7 @@ def current_status() -> Status:
         system=system.status(),
         guide_camera=get_guide_camera().status(),
         shutter=get_shutter().status(),
+        slit=get_slit().status(),
         light_path=get_light_path().status(),
         telescope=telescope.status(),
         tcs=_tcs(telescope),

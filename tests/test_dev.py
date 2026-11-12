@@ -44,10 +44,10 @@ def test_the_demo_job_runs_and_raises_activities_on_three_components(client):
     assert r.status_code == 202
     job = r.json()
     assert job["kind"] == "testing-123" and job["started_by"]["name"] == "Arie"
-    assert sorted(job["components"]) == ["adc", "lamps", "slit"]
+    assert sorted(job["components"]) == ["adc", "focuser", "lamps"]
     time.sleep(0.4)
     status = client.get("/status").json()
-    assert set(status["activities"]) == {"slit", "adc"}
+    assert set(status["activities"]) == {"focuser", "adc"}
     assert [j["id"] for j in status["jobs"]] == [job["id"]]
 
 

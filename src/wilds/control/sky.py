@@ -76,6 +76,37 @@ class CatsHtmSource:
         return Stars(ra, dec, mag)
 
 
+class FieldFileSource:
+    """A star field saved on local disk (:func:`save_field`): the data set the simulator uses, so a
+    slow or absent catalogue share does not matter. Outside the saved cone it has no stars."""
+
+    def __init__(self, path) -> None:
+        with np.load(path) as f:
+            self.centre = (float(f["centre_ra"]), float(f["centre_dec"]))
+            self.radius_deg = float(f["radius_deg"])
+            self._stars = Stars(f["ra_deg"], f["dec_deg"], f["mag"])
+
+    def cone(self, ra_deg: float, dec_deg: float, radius_deg: float) -> Stars:
+        s = self._stars
+        cos_d = math.cos(math.radians(dec_deg))
+        dra = (s.ra_deg - ra_deg + 180.0) % 360.0 - 180.0
+        near = np.hypot(dra * cos_d, s.dec_deg - dec_deg) <= radius_deg
+        return Stars(s.ra_deg[near], s.dec_deg[near], s.mag[near])
+
+
+def save_field(path, centre_ra: float, centre_dec: float, radius_deg: float, stars: Stars) -> None:
+    """Write the stars of a cone for :class:`FieldFileSource`."""
+    np.savez_compressed(
+        path,
+        centre_ra=centre_ra,
+        centre_dec=centre_dec,
+        radius_deg=radius_deg,
+        ra_deg=stars.ra_deg,
+        dec_deg=stars.dec_deg,
+        mag=stars.mag,
+    )
+
+
 def flux_from_mag(mag: np.ndarray) -> np.ndarray:
     """Electrons per second in the simulated camera for Gaia G magnitudes."""
     return ZERO_FLUX * 10.0 ** (-0.4 * (np.asarray(mag, dtype=float) - ZERO_MAG))
