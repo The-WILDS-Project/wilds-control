@@ -12,3 +12,9 @@ opmode = "development"  # the default; "production" refuses the /dev helpers
 [guide_camera]
 kind = "simulated"
 seed_simulated_calibration = true  # a slit, plate scale and orientation, so the overlay can be tried
+
+# Real stars in the simulated guide camera: a catsHTM Gaia DR3 folder (MAST reads it from
+# \\last0\catalogs\GAIA\DR3; mount that share and point to it here; needs the "catalogs" extra:
+# uv sync --extra catalogs). Without it the camera draws an invented field no plate solver can match.
+# [sky]
+# gaia_root = "/Volumes/catalogs/GAIA/DR3"

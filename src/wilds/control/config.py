@@ -67,6 +67,18 @@ class GuideCameraConfig(BaseModel):
     seed_simulated_calibration: bool = False
 
 
+class SkyConfig(BaseModel):
+    """Where the simulated guide camera gets real stars (plan §3.3); without a catalogue it draws an
+    invented field that no plate solver can match. Deployment settings: read at start-up."""
+
+    # The folder of a catsHTM catalogue, e.g. Gaia DR3 (MAST: \\\\last0\\catalogs\\GAIA\\DR3, here
+    # wherever the share is mounted). Empty: no catalogue.
+    gaia_root: Path | None = None
+    catalog_name: str = "GAIADR3"
+    mag_column: str = "phot_g_mean_mag"
+    mag_limit: float = Field(18.0, gt=0, le=22)  # the faintest star drawn
+
+
 class Filing(BaseModel):
     """Where data files are staged and delivered (plan §3.15). Deployment settings: read when
     wilds-control starts, so a change needs a restart."""
@@ -127,6 +139,7 @@ class Config(BaseModel):
     presence: Presence = Presence()
     site: Site = Site()
     guide_camera: GuideCameraConfig = GuideCameraConfig()
+    sky: SkyConfig = SkyConfig()
     filing: Filing = Field(default_factory=Filing)  # built per load: its paths follow the root
     store: Store = Field(default_factory=Store)
     startup: Startup = Startup()

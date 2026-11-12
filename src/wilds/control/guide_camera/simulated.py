@@ -13,6 +13,10 @@ stars are rotated about a centre and then shifted, in unbinned pixels. The app w
 simulated telescope (``guide_camera/__init__.py``), so an offset or a rotation shows in the live
 view.
 
+**Real sky.** With ``sky`` (the app wires it when a star catalogue is configured, ``[sky]`` in
+config.toml) the stars are those of the catalogue around where the telescope points, so the
+frame changes with the target and a plate solver can match it.
+
 **Pacing.** A frame takes its exposure time, or the time to draw it if that is longer, as a
 real camera's video mode does: about 30 fps at the shortest exposures.
 
@@ -36,6 +40,7 @@ from .base import CaptureSettings, ExposureAborted, GuideCameraBase
 SENSOR = (1296, 882)  # a fifth of the ASI294MM's 4144 x 2822: cheap to draw and to encode
 MAX_DELTA_C = 35.0  # the ASI294MM Pro cools about this far below ambient
 STARS = 150
+MAX_DRAWN = 800  # the brightest real stars drawn in a frame
 SKY_E_PER_S = 2.0
 IMAGE_MOTION_SHARE = 0.05  # per-star scatter around the common image motion, in jitter_px
 DARK_E_PER_S_AT_20C = 0.4
@@ -61,6 +66,11 @@ class SimulatedASICamera(GuideCameraBase):
     # the stars rotated counter-clockwise about the centre and then shifted. Zeros: not moved.
     field: Callable[[], tuple[float, float, float, float, float]] = Field(
         default=lambda: (0.0, 0.0, 0.0, 0.0, 0.0), exclude=True
+    )
+    # Real stars where the telescope points: (x, y, flux) arrays in unbinned sensor pixels, or None
+    # to draw the invented field (no catalogue, or no target yet). See ``sky.py``.
+    sky: Callable[[], tuple[np.ndarray, np.ndarray, np.ndarray] | None] = Field(
+        default=lambda: None, exclude=True
     )
 
     _stars: tuple[np.ndarray, np.ndarray, np.ndarray] = PrivateAttr()  # x, y, flux (e/s)
@@ -150,9 +160,15 @@ class SimulatedASICamera(GuideCameraBase):
         seeing = self.seeing_fwhm_px / 2.355 * (1 + 0.1 * rng.standard_normal())  # this frame's
         sigma = max(0.5, math.hypot(seeing, self.defocus_px))
         half = math.ceil(4 * sigma)
-        fdx, fdy, frot, fcx, fcy = self.field()
+        real = self.sky()
+        if real is not None:  # the real sky: the telescope and rotator are already in the positions
+            fdx = fdy = frot = fcx = fcy = 0.0
+            stars = tuple(a[np.argsort(-real[2])[:MAX_DRAWN]] for a in real)
+        else:
+            fdx, fdy, frot, fcx, fcy = self.field()
+            stars = self._stars
         cos_r, sin_r = math.cos(math.radians(frot)), math.sin(math.radians(frot))
-        for x, y, flux in zip(*self._stars, strict=True):
+        for x, y, flux in zip(*stars, strict=True):
             if frot:  # counter-clockwise on the screen (y runs down)
                 rx, ry = x - fcx, y - fcy
                 x, y = fcx + rx * cos_r + ry * sin_r, fcy - rx * sin_r + ry * cos_r
