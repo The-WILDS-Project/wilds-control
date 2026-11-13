@@ -5,11 +5,13 @@ through the broker (the ``wilds-bridge`` package) and learns what happened from 
 telemetry. This module is the shape of that: a few hooks that *send* a command, one that reads
 the telemetry, and everything else (lifecycle, activities, the status, who may command and
 why not) here. :class:`~wilds.control.telescope.simulated.SimulatedTelescope` stands in until
-the bridge is wired in, with the TCS's External Command Preview included.
+the bridge is wired in.
 
-Nothing here imports FastAPI. A command is *sent*; whether it was accepted (preview: the TO
-must accept it in the TCS) and whether it has been carried out is only ever read from the
-telemetry (``operations.py``), never assumed from having sent it.
+Nothing here imports FastAPI. A command is *sent*; there is no negotiation with the Telescope
+Operator. The TCS acts on any valid command while it accepts external commands (the Telescope
+Operator switches that on once the system is up; the telemetry says which it is), and whether a
+command was carried out is only ever read from the telemetry (``operations.py``), never assumed
+from having sent it.
 """
 
 import abc
@@ -31,7 +33,6 @@ COMPONENT = "telescope"
 RotatorFrame = Literal["Target", "Fixed"]
 OffsetNum = Literal["User", "Handset"]
 OffsetType = Literal["TPLANE", "SIMPLE"]
-Command = Literal["target", "rotator"]
 
 
 class TelescopeActivity(Enum):
@@ -49,21 +50,11 @@ class TelescopeError(RuntimeError):
 class TelescopeConf(ConfModel):
     """The operational settings (``telescope.conf``)."""
 
-    accept_timeout_s: float = setting(
-        120.0,
-        unit="s",
-        label="Wait for the TO",
-        help="How long a previewed command may wait for the Telescope Operator to accept it "
-        "before it counts as not accepted",
-        ge=5,
-        le=1800,
-    )
     motion_timeout_s: float = setting(
         300.0,
         unit="s",
         label="Wait for the motion",
-        help="How long an accepted command may take before the telescope is reported as "
-        "not having arrived",
+        help="How long a command may take before the telescope is reported as not having arrived",
         ge=5,
         le=1800,
     )
@@ -89,14 +80,6 @@ class Offset(BaseModel):
     d2_arcsec: float = 0.0  # Dec (or El)
 
 
-class Pending(BaseModel):
-    """A previewed command waiting for the TO to accept it in the TCS."""
-
-    command: Command
-    what: str  # e.g. the target's name, or the angle
-    detail: str = ""  # for the TO: where to, and the slit PA
-
-
 class Telemetry(BaseModel):
     """What the TCS reports, as one snapshot (the hook :meth:`TelescopeBase._read` returns it)."""
 
@@ -106,12 +89,13 @@ class Telemetry(BaseModel):
     rot_frame: RotatorFrame = "Target"
     offsets: dict[OffsetNum, Offset] = Field(default_factory=dict)
     in_position: bool | None = None
-    preview: bool | None = None  # External Command Preview (None: unknown)
-    locked_out: bool | None = None  # the TO has locked out external commands
+    # Does the TCS act on external commands? (None: unknown.) The TCS reports its External
+    # Command Preview (externalTargetCfgCmdPreviewIsTrue): with that on it holds an external
+    # target instead of acting on it, so "accepts" is its opposite.
+    accepts_commands: bool | None = None
     state: str | None = None  # TCS state
     health: str | None = None
     access_mode: str | None = None
-    pending: Pending | None = None
     stale: bool = False  # the last report is old
 
 
@@ -149,9 +133,6 @@ class TelescopeBase(BaseModel, abc.ABC):
 
     @abc.abstractmethod
     def _send_absorb(self, num: OffsetNum) -> None: ...
-
-    def _withdraw(self) -> None:  # noqa: B027 - optional hook
-        """Take back a command still waiting for the TO (a cancelled job)."""
 
     def _connect(self) -> None:  # noqa: B027 - optional hook
         """Reach the broker."""
@@ -214,28 +195,24 @@ class TelescopeBase(BaseModel, abc.ABC):
                 self._life.why_not_operational() or ["not started up"]
             )
         t = self.telemetry()
-        if t.locked_out:
-            return "The TO has locked out external commands"
+        if t.accepts_commands is False:
+            return (
+                "The TCS is not accepting external commands: the Telescope Operator switches "
+                "that on in the TCS"
+            )
         if t.state not in (None, "ENABLED"):
             return f"The TCS is {t.state.lower()}, not enabled"
         return ""
 
     def why_not_on_target(self) -> str:
         """Why an adjustment (offsets, rotation) cannot be made now, or ``""``: it needs a target
-        the telescope has arrived at, with nothing still waiting for the TO."""
+        the telescope has arrived at."""
         t = self.telemetry()
         if t.target is None:
             return "No target yet: slew to one first"
-        if t.pending is not None:
-            return "A command is waiting for the TO"
         if t.in_position is not True:
             return "The telescope is not on target yet"
         return ""
-
-    @property
-    def previewed(self) -> bool:
-        """Will a target or rotator command wait for the TO? Unknown counts as yes."""
-        return self.telemetry().preview is not False
 
     # -- commands: each one sends and returns; ``operations`` watches the outcome -----------
 
@@ -265,9 +242,6 @@ class TelescopeBase(BaseModel, abc.ABC):
     async def send_absorb(self, num: OffsetNum) -> None:
         self._check()
         await asyncio.to_thread(self._send_absorb, num)
-
-    def withdraw(self) -> None:
-        self._withdraw()
 
     def _check(self) -> None:
         self._life.require_operational()

@@ -103,7 +103,6 @@ def simulated_m13_frame(optics: SimulatedOptics, pa: float, binning: int = 1) ->
     cam = guide_camera.get_guide_camera()
     cam.optics = optics
     tel = telescope.get_telescope()
-    tel.set_preview(False)
     tel._send_target(Target(name="M13", ra_hours=M13_RA_H, dec_deg=M13_DEC), pa, "Target")
     later = tel.clock() + 10_000.0
     tel.clock = lambda: later  # long after: the rotator has arrived
@@ -204,7 +203,6 @@ def test_the_calibration_job_recovers_the_optics_through_the_real_solver(real_ap
         sim = telescope.get_telescope()
         sim.slew_s, sim.rotate_deg_s = 0.1, 400.0
         h = hold_lease(client)
-        client.put("/dev/telescope/preview", json={"on": False})
         slew = {"name": "M13", "ra_hours": M13_RA_H, "dec_deg": M13_DEC, "rot_pa": 20.0}
         assert (
             finished(client, client.post("/telescope/slew", json=slew, headers=h).json()["id"])[
