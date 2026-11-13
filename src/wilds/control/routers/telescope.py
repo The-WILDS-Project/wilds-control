@@ -2,11 +2,10 @@
 
 Anyone may read. Every command needs a control lease that the TO granted (engineering mode
 does not command the telescope) and is a job that reserves the ``telescope`` component, so a
-second one is refused with ``409 busy`` while one runs. With the TCS's External Command Preview
-on, a target or rotator command waits for the TO to accept it; the job's message says so
-(``sent``, ``waiting for the TO to accept …``, ``in progress``) and it ends ``refused`` if the
-TO does not accept in time. Offsets are not previewed. Progress is always read from the
-telemetry, never assumed from having sent the command.
+second one is refused with ``409 busy`` while one runs. Nobody approves a command: the TCS acts
+on it while it accepts external commands (the telemetry says whether it does, and a command is
+refused up front while it does not) and it ends ``refused`` if the TCS does not take it up.
+Progress is always read from the telemetry, never assumed from having sent the command.
 """
 
 import math
@@ -122,7 +121,7 @@ async def get_telescope_status(telescope: Telescope) -> TelescopeStatus:
 @router.post("/slew", status_code=202, response_model=Job, dependencies=[NeedsLease])
 async def slew(body: SlewRequest, telescope: Telescope, me: Me) -> Job:
     """Send a target (and the slit's sky PA). The job ends when the telescope is in position on
-    it; with Preview on it waits for the TO first."""
+    it."""
     guard(telescope)
     target = Target(
         name=body.name or coordinate_name(body.ra_hours, body.dec_deg),

@@ -650,7 +650,6 @@ def test_the_telescopes_offsets_and_rotator_move_the_simulated_camera_field(clie
     )
     tel = telescope.get_telescope()
     assert simulated_field(camera)[:3] == (0.0, 0.0, 0.0)  # nothing moved yet
-    tel.set_preview(False)
     tel._send_offset("Handset", Offset(d1_arcsec=5.0, d2_arcsec=0.0), "TPLANE")
     dx, dy, rot, cx, cy = simulated_field(camera)
     # 5" east moves the stars west by 20 px: against the direction of east in the image

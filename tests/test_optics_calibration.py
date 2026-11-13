@@ -116,7 +116,6 @@ def finished(client, id) -> dict:
 
 
 def on_target(client, h):
-    client.put("/dev/telescope/preview", json={"on": False})
     done = finished(client, client.post("/telescope/slew", json=M13, headers=h).json()["id"])
     assert done["state"] == "done"
 

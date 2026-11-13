@@ -196,7 +196,6 @@ def test_the_cameras_real_sky_follows_the_telescopes_target_pointing_and_rotator
     camera.optics = SimulatedOptics(slit_x_px=648.0, slit_y_px=441.0)  # mid-frame, as the stars
     s = Sky(CountingSource(), SENSOR)
     tel = telescope.get_telescope()
-    tel.set_preview(False)
     assert real_sky(camera, s) is None  # no target yet: the invented field
     tel._send_target(Target(name="x", ra_hours=RA0 / 15.0, dec_deg=DEC0), 0.0, "Target")
     x, y, _ = real_sky(camera, s)

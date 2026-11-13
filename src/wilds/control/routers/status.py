@@ -42,8 +42,7 @@ class TcsStatus(BaseModel):
     state: str | None = None
     health: str | None = None
     accessMode: str | None = None
-    preview: bool | None = None
-    lockedOut: bool | None = None
+    acceptsCommands: bool | None = None  # False: the TCS holds external commands, it does not act
     stale: bool = True
 
 
@@ -81,7 +80,7 @@ class Status(BaseModel):
     shutter: ShutterStatus | None = None  # blade state and lifecycle
     slit: SlitStatus | None = None  # stage position in µm, the gap in arcsec, presets
     telescope: TelescopeStatus | None = (
-        None  # target, offsets, rotator, preview, what waits for the TO
+        None  # target, offsets, rotator, whether the TCS accepts commands
     )
     light_path: LightPathStatus | None = None  # lit, or blocked for darks (asked of the TO)
     conf_versions: dict[str, int] = Field(default_factory=dict)  # 'component/slice' -> version
@@ -99,8 +98,7 @@ def _tcs(telescope) -> TcsStatus:
         state=t.state,
         health=t.health,
         accessMode=t.access_mode,
-        preview=t.preview,
-        lockedOut=t.locked_out,
+        acceptsCommands=t.accepts_commands,
         stale=stale,
     )
 
