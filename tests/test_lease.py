@@ -102,11 +102,14 @@ def test_grant_moves_control_to_the_new_holder(client):
         lease.state.check_token(token_a)
 
 
-def test_release_and_revoke(client):
+def test_control_is_not_released_but_granted_to_the_next_requester_or_revoked(client):
     a = new_session(client)
     client.post(f"/control/requests/{a['code']}/grant", headers=TO)
-    assert client.delete("/control", headers=sid(new_session(client, "B"))).status_code == 403
-    assert client.delete("/control", headers=sid(a)).status_code == 200
+    assert client.delete("/control", headers=sid(a)).status_code in (404, 405)  # no release
+    b = new_session(client, "B")
+    client.post("/control/requests", headers=sid(b))
+    client.post(f"/control/requests/{b['code']}/grant", headers=TO)  # no revoke needed
+    assert client.get("/status").json()["control"]["holder"] == "B"
     client.post(f"/control/requests/{a['code']}/grant", headers=TO)
     assert client.post("/control/revoke", headers=TO).status_code == 200
     assert client.get("/status").json()["control"]["holder"] is None

@@ -1,7 +1,7 @@
 """The telescope: send a target, offsets and a rotator angle, and follow them (plan §3.3, §3.12).
 
-Anyone may read. Every command needs a control lease that the TO granted (engineering mode
-does not command the telescope) and is a job that reserves the ``telescope`` component, so a
+Anyone may read. Every command needs the control lease (the TO's grant, or engineering
+mode's passphrase) and is a job that reserves the ``telescope`` component, so a
 second one is refused with ``409 busy`` while one runs. Nobody approves a command: the TCS acts
 on it while it accepts external commands (the telemetry says whether it does, and a command is
 refused up front while it does not) and it ends ``refused`` if the TCS does not take it up.
@@ -16,7 +16,6 @@ from pydantic import BaseModel, Field
 
 from ..errors import ApiError
 from ..jobs import Job, JobContext, StartedBy, manager
-from ..lease import state as lease
 from ..telescope import (
     COMPONENT,
     Offset,
@@ -41,8 +40,6 @@ NeedsLease = Depends(require_lease)
 
 def guard(telescope: TelescopeBase) -> None:
     """Refuse, with the reason, a command that cannot be sent now."""
-    if lease.engineering:
-        raise ApiError(403, "lease_required", telescope.why_not_available(engineering=True))
     telescope.life.require_operational()
     if why := telescope.why_not_available():
         raise ApiError(409, "not_operational", why)

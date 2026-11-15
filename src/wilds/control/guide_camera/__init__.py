@@ -5,8 +5,8 @@ from pathlib import Path
 
 from .. import config
 from ..conf import confs
+from ..cover import get_cover
 from ..lifecycle import system
-from ..light_path import get_light_path
 from .asi import ASICamera
 from .base import (
     CameraBusy,
@@ -65,7 +65,7 @@ def get_guide_camera() -> GuideCameraBase:
         camera = (
             ASICamera()
             if kind == "asi"
-            else SimulatedASICamera(light_blocked=lambda: get_light_path().blocked)
+            else SimulatedASICamera(light_blocked=lambda: get_cover().closed)
         )
         confs.add(camera.conf)  # for the /config endpoints
         confs.add(camera.cal)

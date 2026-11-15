@@ -184,12 +184,9 @@ class TelescopeBase(BaseModel, abc.ABC):
     def telemetry(self) -> Telemetry:
         return self._read()
 
-    def why_not_available(self, *, engineering: bool = False) -> str:
+    def why_not_available(self) -> str:
         """Why a command to the telescope cannot be sent now, or ``""`` (plan §3.12). The
-        lease itself (a TO-granted one) is checked by the caller; engineering mode does not
-        command the telescope."""
-        if engineering:
-            return "Engineering mode does not command the telescope"
+        lease itself, held normally or in engineering mode, is checked by the caller."""
         if not self._life.operational:
             return "The telescope is not operational: " + "; ".join(
                 self._life.why_not_operational() or ["not started up"]

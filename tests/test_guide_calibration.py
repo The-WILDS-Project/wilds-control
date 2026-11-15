@@ -24,7 +24,7 @@ URL = "/guide-camera/calibration"
 # -- the camera in the dark ---------------------------------------------------------------
 
 
-def test_a_blocked_light_path_gives_a_flat_dark_frame_and_an_open_one_has_stars():
+def test_a_closed_cover_gives_a_flat_dark_frame_and_an_open_one_has_stars():
     settings = CaptureSettings(exposure_s=0.5)
     lit = SimulatedASICamera()
     dark = SimulatedASICamera(light_blocked=lambda: True)
@@ -190,9 +190,9 @@ def run(client, h, **body) -> dict:
 
 
 def block_light(client, h):
-    """Ask for the light to be blocked and have the TO say it is."""
-    assert client.post("/light-path/block-request", headers=h).status_code == 200
-    assert client.post("/light-path/acknowledge", headers=TO).json()["state"] == "blocked"
+    """Close the instrument cover and wait until it has closed."""
+    assert client.post("/cover/close", headers=h).status_code == 200
+    assert wait_for(lambda: client.get("/cover").json()["state"] == "closed")
 
 
 def set_group(client, h, group, **values):
@@ -290,17 +290,17 @@ def test_it_is_refused_while_streaming_or_not_started_up_or_without_the_lease(cl
     assert r.status_code == 409 and r.json()["code"] == "not_operational"
 
 
-def test_a_dark_needs_the_light_blocked_but_a_bias_does_not(client):
+def test_a_dark_needs_the_cover_closed_but_a_bias_does_not(client):
     h = hold_lease(client)
     r = client.post(
         f"{URL}/frames", json={"kind": "dark", "require_stable_cooler": False}, headers=h
     )
-    assert r.status_code == 409 and r.json()["code"] == "light_not_blocked"
-    assert r.json()["details"]["state"] == "unknown"
+    assert r.status_code == 409 and r.json()["code"] == "cover_not_closed"
+    assert r.json()["details"]["state"] == "open"
     assert run(client, h, kind="bias", count=1)["state"] == "done"
 
 
-def test_a_dark_run_stops_if_the_light_comes_back(client):
+def test_a_dark_run_stops_if_the_cover_is_opened(client):
     h = hold_lease(client)
     set_group(client, h, "single_frame", exposure_s=0.3)
     block_light(client, h)
@@ -311,9 +311,9 @@ def test_a_dark_run_stops_if_the_light_comes_back(client):
     )
     job = r.json()
     time.sleep(0.5)
-    assert client.put("/light-path/state", json={"state": "lit"}, headers=TO).status_code == 200
+    assert client.post("/cover/open", headers=h).status_code == 200
     assert wait_for(lambda: client.get(f"/jobs/{job['id']}").json()["state"] == "failed")
-    assert client.get(f"/jobs/{job['id']}").json()["error"]["code"] == "light_not_blocked"
+    assert client.get(f"/jobs/{job['id']}").json()["error"]["code"] == "cover_not_closed"
     assert not client.get(f"{URL}/sessions").json()[0]["entries"]
 
 

@@ -1,7 +1,7 @@
 """The shutter's abstract base (plan §3.17).
 
 WILDS has one software-controlled shutter, for the science cameras' light path only (the guide
-camera has none; its darks use the TO-blocked light path, see ``light_path``). Nothing the camera
+camera has none; its darks use the instrument cover, see ``cover``). Nothing the camera
 triggers: it is closed to take darks and bias frames, and otherwise open. The base holds
 everything shared: the ``conf`` settings slice, the lifecycle, the activities and the state; a
 subclass supplies only the hardware hooks, so the simulator exercises all of it.

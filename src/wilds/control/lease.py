@@ -204,12 +204,6 @@ class ControlState:
             audit.info("control revoked from %s", self._label(h))
         self._clear_lease()
 
-    def release(self, s: Session) -> None:
-        if s.id != self.holder_id:
-            raise LeaseError(403, "You do not hold control")
-        audit.info("control released by %s", self._label(s))
-        self._clear_lease()
-
     def take_engineering(self, s: Session) -> None:
         """Take control in engineering mode. The caller has checked the passphrase."""
         prev = self.holder

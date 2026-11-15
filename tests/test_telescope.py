@@ -113,7 +113,7 @@ def test_offsets_are_set_cleared_and_limited(client):
     assert finished(client, j["id"])["state"] == "done"
 
 
-def test_only_a_to_granted_lease_commands_the_telescope(client):
+def test_the_lease_is_needed_and_engineering_mode_holds_it_too(client):
     assert client.post("/telescope/slew", json=TARGET).status_code == 403
     s = client.post("/sessions", json={"name": "Eve"}).json()
     sid = {"X-Session-Id": s["session_id"]}
@@ -125,8 +125,8 @@ def test_only_a_to_granted_lease_commands_the_telescope(client):
     )
     token = client.post(f"/sessions/{s['session_id']}/heartbeat").json()["lease_token"]
     r = client.post("/telescope/slew", json=TARGET, headers={**sid, "X-Lease-Token": token})
-    assert r.status_code == 403 and "Engineering mode" in r.json()["message"]
-    assert client.get("/status").json()["actions"]["slew"]["ok"] is False
+    assert r.status_code == 202
+    assert client.get("/status").json()["actions"]["slew"]["ok"] is True
 
 
 def test_a_tcs_that_does_not_accept_commands_greys_the_actions_and_refuses_with_the_reason(client):

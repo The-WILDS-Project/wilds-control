@@ -163,22 +163,13 @@ def heartbeat(session_id: str, request: Request) -> Heartbeat:
     )
 
 
-# -- requests and release ---------------------------------------------------------------
+# -- requests (nobody releases control: the TO grants it to the next requester) ---------------------------------------------------------------
 
 
 @router.post("/control/requests", status_code=202)
 def request_control(me: Me) -> dict[str, str]:
     state.request(me)
     return {"code": me.code}
-
-
-@router.delete("/control")
-def release_control(me: Me) -> dict[str, bool]:
-    try:
-        state.release(me)
-    except LeaseError as e:
-        raise _http(e) from e
-    return {"released": True}
 
 
 @router.post("/control/engineering")

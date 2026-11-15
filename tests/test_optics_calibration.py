@@ -186,9 +186,9 @@ def test_it_needs_the_lease_and_a_target_and_the_light(client):
     assert no_target.status_code == 409 and no_target.json()["code"] == "conflict"
     assert "target" in no_target.json()["message"]
     on_target(client, h)
-    client.put("/light-path/state", json={"state": "blocked"}, headers=TO)
+    client.post("/cover/close", headers=h)
     blocked = client.post("/calibration/optics", json=QUICK, headers=h)
-    assert blocked.status_code == 409 and "light path" in blocked.json()["message"]
+    assert blocked.status_code == 409 and "cover" in blocked.json()["message"]
 
 
 def test_a_gap_outside_the_slits_travel_is_422(client):
