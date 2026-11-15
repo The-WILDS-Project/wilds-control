@@ -18,7 +18,7 @@ from pydantic import BaseModel, Field
 
 
 class SimulatedOptics(BaseModel):
-    plate_scale_arcsec_px: float = Field(0.272, gt=0)
+    plate_scale_arcsec_px: float = Field(default=0.272, gt=0)
     parity: Literal[1, -1] = 1
     orientation_deg: float = 31.0  # angle of sky north at slit PA 0
     slit_x_px: float = 668.0  # the slit's centre; the target sits on it
@@ -27,7 +27,7 @@ class SimulatedOptics(BaseModel):
     # quite where the slit points north (a few tenths of a degree, as in a real instrument).
     slit_angle_deg: float = 31.4
     slit_length_arcsec: float = 30.0
-    leak: float = Field(0.03, ge=0, le=1)  # the share of light seen through the gap (it is dark)
+    leak: float = Field(default=0.03, ge=0, le=1)  # the share of light seen through the gap (it is dark)
 
     def slit_axes(self) -> tuple[tuple[float, float], tuple[float, float]]:
         """Unit vectors (x right, y down) along the slit and across it."""
