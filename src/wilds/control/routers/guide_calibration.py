@@ -3,8 +3,8 @@
 Taking them needs the control lease and is a job that reserves the camera: it takes ``count``
 frames with the camera's own settings (those of the ``single_frame`` or ``video`` group, a dark
 with its own exposure if asked, a bias at the shortest exposure) and files the frames and their
-median in the active calibration session. A dark needs the light path blocked (the TO does that
-on request, see ``light_path``) and stops if the light comes back; a bias, at the shortest
+median in the active calibration session. A dark needs the instrument cover closed (the TO is told
+first, see ``cover``) and stops if it is opened; a bias, at the shortest
 exposure, needs nothing. The guide camera has no shutter of its own.
 Sessions are time-stamped folders on the local disk; any of them
 can be made the active one again.
@@ -18,6 +18,7 @@ from fastapi import APIRouter, Depends
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field, model_validator
 
+from ..cover import CoverBase, get_cover
 from ..errors import ApiError
 from ..guide_camera import (
     CameraBusy,
@@ -30,13 +31,12 @@ from ..guide_camera.base import COMPONENT as CAMERA
 from ..guide_camera.base import EXPOSURE_RANGE_S, CalibrationKind, CaptureSettings
 from ..guide_camera.calibration_frames import SessionInfo, store
 from ..jobs import Job, JobCancelled, JobContext, StartedBy, manager
-from ..light_path import LightPath, get_light_path
 from .control import Me, require_lease
 
 router = APIRouter(prefix="/guide-camera/calibration", tags=["guide-camera"])
 
 Camera = Annotated[GuideCameraBase, Depends(get_guide_camera)]
-Light = Annotated[LightPath, Depends(get_light_path)]
+Cover = Annotated[CoverBase, Depends(get_cover)]
 NeedsLease = Depends(require_lease)
 
 
@@ -86,22 +86,24 @@ async def until_done(ctx: JobContext, camera: GuideCameraBase, task: asyncio.Tas
     return task.result()
 
 
-def _need_dark(kind: CalibrationKind, light: LightPath) -> None:
-    if kind == "dark" and not light.blocked:
+def _need_dark(kind: CalibrationKind, cover: CoverBase) -> None:
+    if kind == "dark" and not cover.closed:
         raise ApiError(
             409,
-            "light_not_blocked",
-            "a dark needs the light path blocked: ask the TO to block it first"
-            if light.state != "lit"
-            else "the light came back while the dark frames were being taken",
-            {"state": light.state},
+            "cover_not_closed",
+            "a dark needs the instrument cover closed: tell the TO, then close it"
+            if cover.state in ("open", "unknown")
+            else f"the cover is {cover.state}: wait until it is closed"
+            if cover.state == "closing"
+            else "the cover was opened while the dark frames were being taken",
+            {"state": cover.state},
         )
 
 
 async def _run(
     ctx: JobContext,
     camera: GuideCameraBase,
-    light: LightPath,
+    cover: CoverBase,
     request: CalibrationRequest,
     settings: CaptureSettings,
 ) -> dict:
@@ -111,11 +113,11 @@ async def _run(
     try:
         for i in range(request.count):
             ctx.check()
-            _need_dark(request.kind, light)
+            _need_dark(request.kind, cover)
             ctx.progress(i / request.count, f"{request.kind} {i + 1} of {request.count}")
             task = asyncio.create_task(camera.calibration_frame(request.kind, settings))
             frames.append(await until_done(ctx, camera, task))
-        _need_dark(request.kind, light)  # the last frame, too, was taken in the dark
+        _need_dark(request.kind, cover)  # the last frame, too, was taken in the dark
     except CameraBusy as e:
         raise ApiError(409, "busy", str(e), {"component": CAMERA}) from e
     except SettingError as e:
@@ -129,11 +131,11 @@ async def _run(
 
 @router.post("/frames", status_code=202, response_model=Job, dependencies=[NeedsLease])
 async def take_calibration_frames(
-    request: CalibrationRequest, camera: Camera, light: Light, me: Me
+    request: CalibrationRequest, camera: Camera, cover: Cover, me: Me
 ) -> Job:
     """Dark or bias frames, as a job. ``409 busy`` while streaming or while another job has the
-    camera, ``409 not_operational`` until it is started up, ``409 light_not_blocked`` for a dark
-    unless the TO has blocked the light path, and ``409 cooler_not_stable`` for a dark while the
+    camera, ``409 not_operational`` until it is started up, ``409 cover_not_closed`` for a dark
+    unless the instrument cover is closed, and ``409 cooler_not_stable`` for a dark while the
     sensor is still cooling."""
     camera.life.require_operational()
     if camera.streaming:
@@ -145,12 +147,12 @@ async def take_calibration_frames(
             "the sensor is still cooling to its setpoint; darks taken now would not match later "
             "ones (ask for require_stable_cooler false to take them anyway)",
         )
-    _need_dark(request.kind, light)
+    _need_dark(request.kind, cover)
     settings = settings_for(request, camera)
     return manager.submit(
         f"guide-camera-{request.kind}",
         [CAMERA],
-        lambda ctx: _run(ctx, camera, light, request, settings),
+        lambda ctx: _run(ctx, camera, cover, request, settings),
         started_by=StartedBy(name=me.name, code=me.code),
     )
 

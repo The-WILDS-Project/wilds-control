@@ -5,8 +5,8 @@ from pathlib import Path
 
 from .. import config
 from ..conf import confs
+from ..cover import get_cover
 from ..lifecycle import system
-from ..light_path import get_light_path
 from .asi import ASICamera
 from .base import (
     CameraBusy,
@@ -65,7 +65,7 @@ def get_guide_camera() -> GuideCameraBase:
         camera = (
             ASICamera()
             if kind == "asi"
-            else SimulatedASICamera(light_blocked=lambda: get_light_path().blocked)
+            else SimulatedASICamera(light_blocked=lambda: get_cover().closed)
         )
         confs.add(camera.conf)  # for the /config endpoints
         confs.add(camera.cal)
@@ -90,7 +90,7 @@ def simulated_field(camera: SimulatedASICamera) -> tuple[float, float, float, fl
     """How the simulated telescope has moved the simulated camera's field (see
     ``SimulatedASICamera.field``): the rotator turns the image about the slit (the camera is on
     the instrument), and the pointing offsets shift the stars the other way. Uses the camera's
-    true optics (plate scale, orientation, parity, slit pixel), not the stored calibration, which
+    true optics (plate scale, orientation, parity, the working gap's middle), not the stored calibration, which
     is what a calibration has to find."""
     import math
 
@@ -98,7 +98,7 @@ def simulated_field(camera: SimulatedASICamera) -> tuple[float, float, float, fl
 
     o = camera.optics  # the true geometry, not the stored calibration
     scale, parity, theta0 = o.plate_scale_arcsec_px, o.parity, o.orientation_deg
-    centre = (o.slit_x_px, o.slit_y_px)
+    centre = o.gap_centre()  # the telescope points at the middle of the working gap
     t = get_telescope().telemetry()
     pa = t.rot_pa or 0.0
     north = -math.radians(theta0 - parity * pa)  # clockwise on the screen, as slit.js has it
@@ -149,8 +149,8 @@ def real_sky(camera: SimulatedASICamera, sky):
     o = camera.optics  # the true geometry, not the stored calibration
     geo = Geometry(
         plate_scale_arcsec_px=o.plate_scale_arcsec_px,
-        slit_x=o.slit_x_px,
-        slit_y=o.slit_y_px,
+        slit_x=o.gap_centre()[0],
+        slit_y=o.gap_centre()[1],
         orientation_deg=o.orientation_deg,
         parity=o.parity,
         pa_deg=t.rot_pa or 0.0,
@@ -177,7 +177,7 @@ def _seed_simulated_calibration(camera: SimulatedASICamera) -> None:
             "slit_pixel_y": SENSOR[1] / 2,
             "orientation_deg": 25.0,
             "parity": 1,
-            "slit_length_arcsec": 30.0,
+            "slit_length_arcsec": 90.0,
             "slit_width_arcsec": 1.0,
         },
         who=StartedBy(name="simulator", code="SIM"),

@@ -24,7 +24,7 @@ import asyncio
 import contextlib
 import logging
 import threading
-from collections.abc import Callable, Iterator
+from collections.abc import Awaitable, Callable, Iterator
 from enum import Enum, StrEnum
 
 from pydantic import BaseModel
@@ -74,12 +74,17 @@ class Lifecycle:
         *,
         startup: Callable[[], None] | None = None,
         shutdown: Callable[[], None] | None = None,
+        astartup: Callable[[], Awaitable[None]] | None = None,
+        ashutdown: Callable[[], Awaitable[None]] | None = None,
         halt: Callable[[], object] | None = None,
         why_not: Callable[[], list[str]] | None = None,
     ):
         self.component = component
         self._activities = activities
         self._startup, self._shutdown, self._halt, self._why_not = startup, shutdown, halt, why_not
+        # The same, for work that belongs on the event loop (listening to a broker): ``astartup``
+        # runs after ``startup``, ``ashutdown`` before ``shutdown``.
+        self._astartup, self._ashutdown = astartup, ashutdown
         self._opstate = OpState.initializing
         self._error: str | None = None  # why the last startup or shutdown did not complete
         self._opstate = OpState.initialized
@@ -146,9 +151,12 @@ class Lifecycle:
         acts.start(up)
         try:
             self._error = None
-            if self._startup is not None:
+            if self._startup is not None or self._astartup is not None:
                 try:
-                    await asyncio.to_thread(self._startup)
+                    if self._startup is not None:
+                        await asyncio.to_thread(self._startup)
+                    if self._astartup is not None:
+                        await self._astartup()
                 except Exception as e:
                     log.exception("%s: startup failed", self.component)
                     self._error = f"startup failed: {e}" if str(e) else "startup failed"
@@ -176,6 +184,8 @@ class Lifecycle:
                     result = self._halt()
                     if asyncio.iscoroutine(result):
                         await result
+                if self._ashutdown is not None:
+                    await self._ashutdown()
                 if self._shutdown is not None:
                     await asyncio.to_thread(self._shutdown)
             except Exception as e:

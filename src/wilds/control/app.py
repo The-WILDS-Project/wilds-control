@@ -4,6 +4,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from . import config, errors, paths
+from .cover import close_cover, get_cover
 from .filing import close_filing, get_filing
 from .guide_camera import close_guide_camera, get_guide_camera
 from .jobs import manager as job_manager
@@ -14,13 +15,13 @@ from .routers import (
     adc,
     camera,
     control,
+    cover,
     dev,
     focus,
     guide_calibration,
     guide_camera,
     jobs,
     lamps,
-    light_path,
     optics_calibration,
     resolve,
     shutter,
@@ -47,6 +48,7 @@ async def lifespan(app: FastAPI):
     get_guide_camera()
     get_shutter()
     get_slit()
+    get_cover()
     get_telescope()
     get_filing().start()
     if config.get().autostart:
@@ -56,6 +58,7 @@ async def lifespan(app: FastAPI):
     await close_guide_camera()
     await close_shutter()
     await close_slit()
+    await close_cover()
     await close_telescope()
 
 
@@ -79,7 +82,7 @@ def create_app() -> FastAPI:
     app.include_router(shutter.router)
     app.include_router(telescope.router)
     app.include_router(resolve.router)
-    app.include_router(light_path.router)
+    app.include_router(cover.router)
     app.include_router(config_router.router)
     app.include_router(system_router.router)
     app.include_router(status.router)

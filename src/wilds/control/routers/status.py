@@ -16,12 +16,12 @@ from sse_starlette.sse import EventSourceResponse
 from .. import config
 from ..activities import registry
 from ..conf import confs
+from ..cover import CoverStatus, get_cover
 from ..filing import FilingStatus, get_filing
 from ..guide_camera import GuideCameraStatus, get_guide_camera
 from ..jobs import Job, manager
 from ..lease import state as lease
 from ..lifecycle import SystemStatus, system
-from ..light_path import LightPathStatus, get_light_path
 from ..shutter import ShutterStatus, get_shutter
 from ..slit import SlitStatus, get_slit
 from ..telescope import TelescopeStatus, get_telescope
@@ -82,7 +82,7 @@ class Status(BaseModel):
     telescope: TelescopeStatus | None = (
         None  # target, offsets, rotator, whether the TCS accepts commands
     )
-    light_path: LightPathStatus | None = None  # lit, or blocked for darks (asked of the TO)
+    cover: CoverStatus | None = None  # the instrument cover: open, closed, opening, closing
     conf_versions: dict[str, int] = Field(default_factory=dict)  # 'component/slice' -> version
     filing: FilingStatus | None = None  # staging, the data share, what waits to be delivered
     jobs: list[Job] = Field(default_factory=list)  # active, then the last few finished
@@ -108,7 +108,7 @@ def _telescope_actions(telescope) -> dict[str, Action]:
     §3.12). A slew needs only that the telescope takes commands; the adjustments (offset,
     rotator) also need a target it is on. Whether this browser's session holds control is the
     GUI's own (local) check."""
-    why = telescope.why_not_available(engineering=lease.engineering)
+    why = telescope.why_not_available()
     adjust = why or telescope.why_not_on_target()
     return {
         "slew": Action(ok=not why, why=why or None),
@@ -144,7 +144,7 @@ def current_status() -> Status:
         guide_camera=get_guide_camera().status(),
         shutter=get_shutter().status(),
         slit=get_slit().status(),
-        light_path=get_light_path().status(),
+        cover=get_cover().status(),
         telescope=telescope.status(),
         tcs=_tcs(telescope),
         actions=_telescope_actions(telescope),

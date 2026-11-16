@@ -107,13 +107,20 @@ def fresh_telescope():
 
 
 @pytest.fixture(autouse=True)
-def fresh_light_path():
-    """Each test starts with the light path in an unknown state."""
-    from wilds.control import light_path
+def fresh_cover(monkeypatch):
+    """Each test builds its own cover, which takes 0.1 s, not 15, to move."""
+    import functools
 
-    light_path.reset()
+    from wilds.control import cover
+
+    monkeypatch.setattr(
+        cover,
+        "SimulatedCover",
+        functools.partial(cover.SimulatedCover, travel_s=0.1, telemetry_period_s=0.02),
+    )
+    cover.reset()
     yield
-    light_path.reset()
+    cover.reset()
 
 
 @pytest.fixture(autouse=True)

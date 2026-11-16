@@ -46,7 +46,7 @@ async def test_startup_finds_the_stage_where_it_is_without_moving_it():
 async def test_shutdown_closes_the_slit():
     s = await started(start_um=500.0)
     await s.shutdown()
-    assert s.position_um == 2.0 and s.at_preset() == "closed"
+    assert s.position_um == 62.345 and s.at_preset() == "closed"
 
 
 # -- moving -------------------------------------------------------------------------------
@@ -54,36 +54,36 @@ async def test_shutdown_closes_the_slit():
 
 async def test_it_moves_to_a_position_and_to_the_presets():
     s = await started()
-    assert s.at_preset() == "closed" and s.width_arcsec == pytest.approx(2 / 124.69)
+    assert s.at_preset() == "closed" and s.width_arcsec == pytest.approx(0.5)  # it cannot close more
     await s.move_to(124.69)
     assert (
         s.position_um == 124.69 and s.width_arcsec == pytest.approx(1.0) and s.at_preset() is None
     )
     await s.move_to_preset("open")
-    assert s.position_um == 21000.0 and s.at_preset() == "open"
+    assert s.position_um == 498.76 and s.at_preset() == "open"
     await s.move_to_preset("closed")
-    assert s.position_um == 2.0
+    assert s.position_um == 62.345
 
 
 async def test_a_position_outside_the_travel_is_refused_and_nothing_moves():
     s = await started()
-    for bad in (-1.0, 21000.5):
+    for bad in (-1.0, 62.0, 499.0, 21000.0):  # past the hard stops
         with pytest.raises(SlitRange):
             await s.move_to(bad)
-    assert s.position_um == 2.0
+    assert s.position_um == 62.345
 
 
 async def test_the_presets_and_the_scale_are_settings():
     s = await started()
-    s.conf.patch({"open_um": 1500.0, "um_per_arcsec": 100.0}, who=ARIE)
+    s.conf.patch({"open_um": 400.0, "um_per_arcsec": 100.0}, who=ARIE)
     await s.move_to_preset("open")
-    assert s.position_um == 1500.0 and s.width_arcsec == 15.0
+    assert s.position_um == 400.0 and s.width_arcsec == 4.0
     assert s.um_for_arcsec(1.0) == 100.0
 
 
 async def test_it_reads_moving_and_shows_an_activity_while_the_stage_travels():
-    s = await started(speed_um_s=1000.0)  # 2 s for the full travel
-    task = asyncio.create_task(s.move_to(500.0))
+    s = await started(speed_um_s=1000.0)  # 0.4 s for the full travel
+    task = asyncio.create_task(s.move_to(450.0))
     await asyncio.sleep(0.05)
     assert s.status().moving and s.position_um is None and s.activities.names == ["Moving"]
     await task
@@ -92,7 +92,7 @@ async def test_it_reads_moving_and_shows_an_activity_while_the_stage_travels():
 
 async def test_a_second_move_while_moving_is_refused():
     s = await started(speed_um_s=1000.0)
-    task = asyncio.create_task(s.move_to(500.0))
+    task = asyncio.create_task(s.move_to(450.0))
     await asyncio.sleep(0.05)
     with pytest.raises(SlitBusy):
         await s.move_to(100.0)
@@ -145,7 +145,7 @@ def test_the_status_and_the_system_carry_the_slit(client):
     body = client.get("/status").json()
     slit = body["slit"]
     assert slit["kind"] == "simulated" and slit["preset"] == "closed"
-    assert (slit["min_um"], slit["max_um"], slit["um_per_arcsec"]) == (0.0, 21000.0, 124.69)
+    assert (slit["min_um"], slit["max_um"], slit["um_per_arcsec"]) == (62.345, 498.76, 124.69)
     assert slit["lifecycle"]["operational"] is True  # autostart in development
     assert "slit" in body["system"]["components"]
     assert client.get("/slit").json() == slit
@@ -158,7 +158,7 @@ def test_moving_it_needs_the_lease(client):
 def test_move_to_a_preset_or_a_position_with_the_lease(client):
     h = hold_lease(client)
     r = client.post("/slit/move", json={"preset": "open"}, headers=h).json()
-    assert r["position_um"] == 21000.0 and r["preset"] == "open"
+    assert r["position_um"] == 498.76 and r["preset"] == "open"
     r = client.post("/slit/move", json={"position_um": 124.69}, headers=h).json()
     assert r["width_arcsec"] == pytest.approx(1.0) and r["preset"] is None
 
@@ -173,7 +173,7 @@ def test_a_malformed_move_is_422(client, body):
 
 def test_a_position_beyond_the_travel_is_422_invalid(client):
     h = hold_lease(client)
-    r = client.post("/slit/move", json={"position_um": 25000}, headers=h)
+    r = client.post("/slit/move", json={"position_um": 2500}, headers=h)
     assert r.status_code == 422 and r.json()["code"] == "invalid"
 
 
@@ -197,7 +197,7 @@ def test_its_settings_are_served_by_the_config_endpoints(client):
 
 async def test_it_stays_operational_while_the_stage_moves():
     s = await started(speed_um_s=1000.0)
-    task = asyncio.create_task(s.move_to(500.0))
+    task = asyncio.create_task(s.move_to(450.0))
     await asyncio.sleep(0.05)
     assert s.life.operational
     await task

@@ -18,7 +18,7 @@ ErrorCode = Literal[
     "stale",  # 409: the settings changed since the caller loaded them
     "invalid",  # 422
     "conflict",  # 409: the request does not fit the state (already done, nothing to cancel)
-    "light_not_blocked",  # 409: a dark needs the light path blocked (plan §3.17)
+    "cover_not_closed",  # 409: a dark needs the instrument cover closed (plan §3.17)
     "not_operational",  # 409: the component is not started up or cannot take tasks now
     "cooler_not_stable",  # 409: a dark needs the sensor at its setpoint
     "solve_failed",  # 409: the plate solver found no match (or has no index files)

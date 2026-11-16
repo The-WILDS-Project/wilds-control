@@ -1,6 +1,7 @@
 """A slit stage that only takes its time, so the rest of WILDS can be exercised without hardware.
-Its travel is the SmarAct CLS-3232's, 21 mm (SmarAct data sheet: >20 mm/s, 1 nm closed-loop
-resolution with the MCS2); the speed is made up: 5 mm/s."""
+Its range is the slit's, fixed by hard stops: 0.5 to 4 arcsec (WILDS PDR), 62.345 to 498.76 µm at
+124.69 µm/arcsec. The slit cannot close completely: its narrowest gap is 0.5 arcsec. The speed is
+made up: 5 mm/s (the SmarAct CLS-3232 does more than 20 mm/s)."""
 
 import time
 from typing import ClassVar
@@ -13,10 +14,10 @@ from .base import SlitBase
 class SimulatedSlit(SlitBase):
     kind: ClassVar[str] = "simulated"
 
-    min_um: float = 0.0
-    max_um: float = 21000.0
+    min_um: float = 62.345  # the lower hard stop: 0.5 arcsec
+    max_um: float = 498.76  # the upper hard stop: 4 arcsec
     speed_um_s: float = 5000.0
-    start_um: float = 2.0  # where the stage is when WILDS starts (closed)
+    start_um: float = 62.345  # where the stage is when WILDS starts (closed: the narrowest)
 
     _at: float = PrivateAttr(default=0.0)
 

@@ -2,8 +2,10 @@
 
 Starting it needs the control lease and is a job that reserves the camera, the slit stage and the
 telescope (nothing may move the field meanwhile). The telescope must be on a star field and the
-light path not blocked. It closes the slit, takes a frame and plate solves it, opens the slit to a
-measuring width, takes another, and finds the gap in the difference. The result is a measurement
+instrument cover closed. It closes the slit, takes a frame and plate solves it, opens the slit to a
+measuring width and to half of it, takes a frame at each, and finds the gap in the differences. Only
+one jaw of the slit moves, so the two gaps also say where the fixed jaw's edge is and which way
+the gap grows from it. The result is a measurement
 and nothing more: ``GET /calibration/optics/last`` shows it with its warnings, and
 ``POST /calibration/optics/apply`` (naming the measurement) writes it into the camera's
 calibration, with who and when.
@@ -16,6 +18,7 @@ from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 
 from .. import optics_calibration as oc
+from ..cover import CoverBase, get_cover
 from ..errors import ApiError
 from ..field_solver import FieldSolver, SolveFailed, get_field_solver
 from ..guide_camera import (
@@ -28,7 +31,6 @@ from ..guide_camera import (
 from ..guide_camera.base import COMPONENT as CAMERA
 from ..guide_camera.base import EXPOSURE_RANGE_S, GAIN_RANGE, CaptureSettings
 from ..jobs import Job, JobCancelled, JobContext, StartedBy, manager
-from ..light_path import LightPath, get_light_path
 from ..slit import COMPONENT as SLIT
 from ..slit import SlitBase, SlitBusy, SlitRange, get_slit
 from ..slit_detect import SlitNotFound
@@ -43,7 +45,7 @@ Camera = Annotated[GuideCameraBase, Depends(get_guide_camera)]
 Slit = Annotated[SlitBase, Depends(get_slit)]
 Telescope = Annotated[TelescopeBase, Depends(get_telescope)]
 Solver = Annotated[FieldSolver, Depends(get_field_solver)]
-Light = Annotated[LightPath, Depends(get_light_path)]
+Cover = Annotated[CoverBase, Depends(get_cover)]
 NeedsLease = Depends(require_lease)
 
 FALLBACK_SCALE = 0.037  # arcsec per unbinned pixel: the guide camera at 1:1 (4.63 um, 8.02"/mm)
@@ -54,7 +56,7 @@ class OpticsRequest(BaseModel):
         4.0,
         ge=EXPOSURE_RANGE_S[0],
         le=EXPOSURE_RANGE_S[1],
-        description="Each of the two frames; the gap is faint, so longer is better",
+        description="Each of the three frames; the gap is faint, so longer is better",
     )
     gain: int | None = Field(
         None,
@@ -66,7 +68,8 @@ class OpticsRequest(BaseModel):
     slit_width_arcsec: float = Field(
         oc.DEFAULT_WIDTH_ARCSEC,
         gt=0,
-        description="The measuring gap: a strip, narrower than the slit is long",
+        description="The measuring gap, up to the slit's widest, 4 arcsec (it is also "
+        "measured at half this width)",
     )
     nominal_scale_arcsec_px: float | None = Field(
         None,
@@ -93,16 +96,16 @@ def settings_for(request: OpticsRequest, camera: GuideCameraBase) -> CaptureSett
 
 
 def check_ready(
-    camera: GuideCameraBase, slit: SlitBase, telescope: TelescopeBase, light: LightPath
+    camera: GuideCameraBase, slit: SlitBase, telescope: TelescopeBase, cover: CoverBase
 ):
     camera.life.require_operational()
     slit.life.require_operational()
     if camera.streaming:
         raise ApiError(409, "busy", "the guide camera is streaming", {"component": CAMERA})
-    if light.state in ("blocked", "block_requested"):
+    if cover.state in ("closed", "closing"):
         raise _conflict(
-            "the light path is blocked (or being blocked): there is no sky to calibrate on",
-            state=light.state,
+            f"the instrument cover is {cover.state}: there is no sky to calibrate on",
+            state=cover.state,
         )
     if why := telescope.why_not_on_target():
         raise _conflict(f"{why}: the telescope must be on a star field")
@@ -115,23 +118,32 @@ async def run_calibration(
     slit: Slit,
     telescope: Telescope,
     solver: Solver,
-    light: Light,
+    cover: Cover,
     me: Me,
 ) -> Job:
     """The plate scale, the field's rotation and the slit's place, direction and size, as a job
     (see the module docstring). ``409 conflict`` unless the telescope is on a field and the
-    light path is open, ``409 busy`` while another job has the camera, the slit or the
+    instrument cover is not closed, ``409 busy`` while another job has the camera, the slit or the
     telescope; the job fails with ``solve_failed`` or ``slit_not_found``."""
-    check_ready(camera, slit, telescope, light)
+    check_ready(camera, slit, telescope, cover)
     settings = settings_for(request, camera)
     um = slit.um_for_arcsec(request.slit_width_arcsec)
+    um2 = slit.um_for_arcsec(request.slit_width_arcsec * oc.NARROW_FRACTION)
     status = slit.status()
     lo, hi = status.min_um, status.max_um
-    if not lo <= um <= hi:
+    if not (lo <= um <= hi and lo <= um2 <= hi):
         raise ApiError(
             422,
             "invalid",
-            f"a {request.slit_width_arcsec:g} arcsec gap is outside the slit's travel",
+            f"a {request.slit_width_arcsec:g} arcsec gap (or its half) is outside the slit's range, "
+            f"{lo / slit.conf.current.um_per_arcsec:g} to {hi / slit.conf.current.um_per_arcsec:g} arcsec",
+        )
+    if um2 < oc.NARROW_CLEARANCE * status.closed_um:
+        raise ApiError(
+            422,
+            "invalid",
+            f"half of {request.slit_width_arcsec:g} arcsec is too close to the slit's narrowest gap "
+            f"({status.closed_um / slit.conf.current.um_per_arcsec:g} arcsec) to be told from it",
         )
     nominal = (
         request.nominal_scale_arcsec_px
@@ -195,7 +207,7 @@ class ApplyRequest(BaseModel):
 @router.post("/apply", dependencies=[NeedsLease])
 async def apply(body: ApplyRequest, camera: Camera, me: Me) -> dict:
     """Write the last measurement into the camera's calibration (plate scale, orientation, parity,
-    slit pixel, slit angle, slit length). ``409 conflict`` if it is not the one named."""
+    the slit's fixed edge and the side the gap grows to, slit angle, slit length). ``409 conflict`` if it is not the one named."""
     m = oc.last()
     if m is None or m.taken_ms != body.taken_ms:
         raise _conflict("that measurement is not the latest: run it again or fetch the latest")
