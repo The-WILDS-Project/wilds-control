@@ -1,13 +1,15 @@
 """The slit stage's abstract base (plan §3.3, §3.17).
 
-The slit is a gap between two jaws that a stage opens and closes. Only one jaw moves, so the gap
-does not open symmetrically: its edge on the fixed jaw stays put and its centre moves with half
-the width (the optics calibration finds the fixed edge and which way the gap grows). The stage
-position is the gap's width in microns at the telescope's focal plane. The guide
-camera looks at the sky reflected from the jaws, so the slit shows as a dark strip (see the
-calibration). Two named positions are kept in ``conf``: ``closed`` (near the stage's lower
-limit, no light reaches the spectrograph) and ``open`` (its full travel); any position in between
-is allowed (the working slit is about 1 arcsec, ~125 µm).
+The slit is a gap between two jaws that a stage opens and closes. The stage is held between hard
+stops, which fix the slit's range: 0.5 to 4 arcsec (WILDS PDR), so the slit cannot close
+completely and a move past the stops is refused. Only one jaw moves, so the gap does not open
+symmetrically: its edge on the fixed jaw stays put and its centre moves with half the width (the
+optics calibration finds the fixed edge and which way the gap grows). The stage position is the
+gap's width in microns at the telescope's focal plane. The guide camera looks at the sky reflected
+from the jaws, so the slit shows as a dark strip (see the calibration). Two named positions are
+kept in ``conf``: ``closed`` (the narrowest gap, 0.5 arcsec, at the lower hard stop) and ``open``
+(the widest, 4 arcsec, at the upper one); any position in between is allowed (the working slit is
+about 1 arcsec, ~125 µm).
 
 The base holds everything shared (settings, lifecycle, activities, the position and what it is in
 arcsec); a subclass supplies only the hardware hooks. Hooks are blocking, called from a worker
@@ -57,19 +59,20 @@ class SlitConf(ConfModel):
     """The operational settings (``slit.conf``)."""
 
     closed_um: float = setting(
-        2.0,
+        62.345,
         unit="µm",
         label="Closed position",
-        help="The 'closed' preset: near the stage's lower limit, so no light gets through",
+        help="The 'closed' preset: the narrowest the slit goes, 0.5 arcsec (62.345 µm at "
+        "124.69 µm/arcsec), the stage's lower hard stop. The slit cannot close completely",
         ge=0,
         le=100000,
     )
     open_um: float = setting(
-        21000.0,
+        498.76,
         unit="µm",
         label="Open position",
-        help="The 'open' preset: the stage's full travel (21 mm, 168 arcsec: far wider than "
-        "the slit is long)",
+        help="The 'open' preset: the widest the slit opens, 4 arcsec (498.76 µm at "
+        "124.69 µm/arcsec), the stage's upper hard stop",
         gt=0,
         le=100000,
     )
@@ -213,7 +216,7 @@ class SlitBase(BaseModel, abc.ABC):
         self._life.require_operational()
         lo, hi = self._travel()
         if not lo <= um <= hi:
-            raise SlitRange(f"{um:g} µm is outside the slit's travel, {lo:g} to {hi:g} µm")
+            raise SlitRange(f"{um:g} µm is outside the slit's range (its hard stops), {lo:g} to {hi:g} µm")
         if self._moving:
             raise SlitBusy("the slit is moving")
         self._moving = True

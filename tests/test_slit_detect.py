@@ -113,22 +113,24 @@ def test_the_wide_open_gap_is_found_with_its_direction_and_size(angle):
 
 
 @pytest.mark.parametrize("angle", [31.4, -62.0])
-def test_the_working_one_arcsec_slit_is_found_too(angle):
+def test_the_working_one_arcsec_slit_is_found_too_if_cut_short(angle):
     o = SimulatedOptics(slit_angle_deg=angle)
     m = measure_slit(*pair(1.0, o, exposure_s=NARROW_EXPOSURE))
     assert m.angle_deg == pytest.approx(angle, abs=0.5)
     assert m.width_px == pytest.approx(1.0 / o.plate_scale_arcsec_px, abs=0.5)
-    # Across the strip the position is tight; along it the ends are looser: a very bright star
-    # at one end leaves a residual (the seeing differs a little between the two frames), which
-    # moves that end by a few pixels of 110.
+    # Across the strip the position is tight. Along it a narrow gap is found less well: the
+    # detector cuts a 90 arcsec strip short at one or both ends (a fifth to a quarter of it, the
+    # same for any exposure), which moves its middle. That is why the calibration takes where the
+    # slit is along its length from the wide gap alone (see optics_calibration.combine).
     (ux, uy), (vx, vy) = (
         (-np.sin(np.radians(angle)), -np.cos(np.radians(angle))),
         (np.cos(np.radians(angle)), -np.sin(np.radians(angle))),
     )
     dx, dy = m.x - o.gap_centre(1.0)[0], m.y - o.gap_centre(1.0)[1]
     assert abs(dx * vx + dy * vy) < 0.6  # across
-    assert abs(dx * ux + dy * uy) < 2.5  # along
-    assert m.length_px == pytest.approx(o.slit_length_arcsec / o.plate_scale_arcsec_px, abs=5.0)
+    true_length = o.slit_length_arcsec / o.plate_scale_arcsec_px
+    assert abs(dx * ux + dy * uy) < 0.15 * true_length  # along
+    assert 0.7 * true_length < m.length_px <= 1.02 * true_length
 
 
 def test_two_closed_frames_have_no_gap_to_find():

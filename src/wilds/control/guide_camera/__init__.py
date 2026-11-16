@@ -177,7 +177,7 @@ def _seed_simulated_calibration(camera: SimulatedASICamera) -> None:
             "slit_pixel_y": SENSOR[1] / 2,
             "orientation_deg": 25.0,
             "parity": 1,
-            "slit_length_arcsec": 30.0,
+            "slit_length_arcsec": 90.0,
             "slit_width_arcsec": 1.0,
         },
         who=StartedBy(name="simulator", code="SIM"),

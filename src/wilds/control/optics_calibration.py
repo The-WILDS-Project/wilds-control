@@ -3,16 +3,20 @@
 One procedure measures what the live view's slit overlay and the acquisition need to know:
 
 1. Close the slit and take a frame; **plate solve** it: the plate scale, the angle of sky north in
-   the image, and whether the image is mirrored (parity).
-2. Open the slit to a measuring width (a strip a few arcsec wide: a fully open slit is wider than
-   it is long) and take a second frame of the same sky; then to half that width and take a third.
-3. **Find the gap** in each open frame against the closed one (``slit_detect``): where the gap is
-   in the image, the direction it points, and its length and width in pixels.
+   the image, and whether the image is mirrored (parity). The slit cannot close completely (its
+   narrowest gap is 0.5 arcsec), so this frame has that gap in it.
+2. Open the slit to a measuring width (the widest it goes, 4 arcsec by default, so the gap is
+   easiest to find) and take a second frame of the same sky; then to half that width and take a
+   third.
+3. **Find the gap** in each open frame against the closed one (``slit_detect``): the strip the
+   slit has opened since the closed frame, where it is in the image, the direction it points, and
+   its length and width in pixels.
 4. Put them together: with the plate scale the slit's length and width are in arcsec, and the slit's
    direction against north at the rotator's angle says how the rotator's zero sits. Only one jaw
    of the slit moves: the other is fixed, and the gap's centre moves by half the change in width.
-   The two gaps give that jaw's edge (where a gap of no width would be: the slit's reference
-   point) and which side of it the gap grows to.
+   The two strips give that jaw's edge (the slit's reference point: where a gap of no width would
+   be) and which side of it the gap grows to, once the closed gap, which the strips do not
+   include, is added back.
 
 The result is only a measurement: ``Measurement`` says what was found and what looks wrong
 (``warnings``); applying it to the calibration is a separate, deliberate step (``cal_values``).
@@ -41,9 +45,12 @@ log = logging.getLogger(__name__)
 Expose = Callable[[CaptureSettings], Awaitable[Frame]]
 Progress = Callable[[float, str], None]
 
-DEFAULT_WIDTH_ARCSEC = 8.0  # a strip: narrower than the slit is long, wide enough to find easily
+DEFAULT_WIDTH_ARCSEC = (
+    4.0  # the slit's widest gap (it opens 0.5-4 arcsec, WILDS PDR): easiest to find
+)
 SCALE_TOLERANCE = 0.3  # the solver is told the plate scale is the nominal one, within this
 NARROW_FRACTION = 0.5  # the second gap is this fraction of the first
+NARROW_CLEARANCE = 1.5  # and at least this many times the slit's narrowest gap (the closed frame's)
 CENTRE_SHIFT_MIN = 0.6  # the gap's centre moves by less than this share of what one jaw would
 WIDTH_AGREEMENT = 0.2  # a measured width this far from the commanded one is suspicious
 ZERO_ERROR_WARN_DEG = 1.5  # the slit this far from where the rotator says it points
@@ -61,6 +68,7 @@ class Measurement(BaseModel):
     slit_position_um: float  # the stage, for the first (wider) open frame
     slit_position2_um: float  # and for the second (narrower)
     slit_width_commanded_arcsec: float
+    closed_width_arcsec: float  # the slit's own gap in the closed frame (its narrowest)
     # the plate solve (the closed frame)
     plate_scale_arcsec_px: float  # per unbinned pixel
     north_deg: float  # angle of sky north in the image at this PA, counter-clockwise from the top
@@ -75,7 +83,9 @@ class Measurement(BaseModel):
     slit_side: int  # which way the gap grows from it: +1 right of the long axis, -1 left
     gap_x: float  # the middle of the first (wider) gap, where it was seen
     gap_y: float
-    centre_shift_ratio: float  # how far the gap's centre moved against what one moving jaw gives (1)
+    centre_shift_ratio: (
+        float  # how far the gap's centre moved against what one moving jaw gives (1)
+    )
     slit_angle_deg: float  # the long axis, counter-clockwise from the top, (-90, 90]
     slit_length_px: float
     slit_width_px: float
@@ -136,27 +146,43 @@ def combine(
     binning: int,
     roi: tuple[int, int],
     rot_pa: float,
+    closed_width_arcsec: float = 0.0,
 ) -> dict:
     """The calibration numbers from a solve and the slit measured at two widths (all in the
     frames' pixels): unbinned plate scale, orientation at PA 0, the slit's direction and size in
     pixels and arcsec, how far the slit points from where the rotator says, and the fixed jaw's
-    edge and the side the gap grows to. One jaw moves, so a gap of width ``w`` has its centre at
-    ``edge + side * w / 2`` across the slit: the centres of the two gaps give the side, and
-    the edge is where either, taken back by half its width, lands."""
+    edge and the side the gap grows to.
+
+    One jaw moves, so a gap of width ``w`` runs from the fixed edge to ``side * w`` across the
+    slit. The closed frame has the slit's own narrowest gap ``w0`` (``closed_width_arcsec``) in
+    it, so what each measurement finds is only the strip the slit has opened since: ``w - w0``
+    wide, from ``side * w0`` to ``side * w`` across. Its centre is therefore at
+    ``edge + side * (w0 + strip / 2)``, which gives the edge, and the two strips' centres moving
+    by half the change in width give the side."""
     scale = solution.scale_arcsec_px / binning  # per unbinned pixel
     orientation = wrap_arrow(solution.north_deg + solution.parity * rot_pa)
     gx, gy = to_sensor(wide.x, wide.y, binning, *roi)
     nx, ny = to_sensor(narrow.x, narrow.y, binning, *roi)
-    length_px, width_px = wide.length_px * binning, wide.width_px * binning
-    narrow_px = narrow.width_px * binning
+    length_px = wide.length_px * binning
+    strip_w, strip_n = wide.width_px * binning, narrow.width_px * binning
+    w0 = closed_width_arcsec / scale  # the closed gap, unbinned pixels
     a = math.radians(wide.angle_deg)
     vx, vy = math.cos(a), -math.sin(a)  # across the slit, to the right of the long axis
-    shift = (gx - nx) * vx + (gy - ny) * vy  # the wider gap's centre against the narrower's
-    expected = (width_px - narrow_px) / 2  # what one moving jaw gives
+    shift = (gx - nx) * vx + (gy - ny) * vy  # the wider strip's centre against the narrower's
+    expected = (strip_w - strip_n) / 2  # what one moving jaw gives
     side = 1 if shift >= 0 else -1
     ratio = abs(shift) / expected if expected > 0 else 0.0
-    ex = ((gx - side * width_px / 2 * vx) + (nx - side * narrow_px / 2 * vx)) / 2
-    ey = ((gy - side * width_px / 2 * vy) + (ny - side * narrow_px / 2 * vy)) / 2
+    # The edge from each strip: its centre taken back by w0 plus half its width, across the slit.
+    wide_edge = (gx - side * (w0 + strip_w / 2) * vx, gy - side * (w0 + strip_w / 2) * vy)
+    narrow_edge = (nx - side * (w0 + strip_n / 2) * vx, ny - side * (w0 + strip_n / 2) * vy)
+    # Across the slit both strips say where it is, so they are averaged. Along it the wide strip
+    # alone does: the detector finds a narrow strip's ends less well (it can cut them short), and
+    # how far along the slit the gap is does not depend on its width.
+    across = ((wide_edge[0] + narrow_edge[0]) * vx + (wide_edge[1] + narrow_edge[1]) * vy) / 2
+    along = wide_edge[0] * (-vy) + wide_edge[1] * vx  # the long axis' direction, up to its sign
+    ex, ey = across * vx + along * (-vy), across * vy + along * vx
+    width_px = strip_w + w0  # the whole gap at the first measuring width
+    gap_x, gap_y = ex + side * width_px / 2 * vx, ey + side * width_px / 2 * vy
     return {
         "plate_scale_arcsec_px": scale,
         "orientation_deg": orientation,
@@ -164,8 +190,8 @@ def combine(
         "slit_x": ex,
         "slit_y": ey,
         "slit_side": side,
-        "gap_x": gx,
-        "gap_y": gy,
+        "gap_x": gap_x,
+        "gap_y": gap_y,
         "centre_shift_ratio": ratio,
         "slit_angle_deg": wide.angle_deg,
         "slit_length_px": length_px,
@@ -231,6 +257,10 @@ async def measure(
         await slit.move_to_preset("closed")
         progress(0.12, f"closed-slit frame ({settings.exposure_s:g} s)")
         closed = await expose(settings)
+        closed_um = (
+            slit.position_um if slit.position_um is not None else slit.conf.current.closed_um
+        )
+        closed_width = closed_um / slit.conf.current.um_per_arcsec  # the narrowest gap
 
         progress(0.4, "plate solving")
         nominal = nominal_scale_arcsec_px * binning
@@ -257,7 +287,15 @@ async def measure(
     closed_px = closed.pixels.astype(np.float64)
     wide = measure_slit(closed_px, opened.pixels.astype(np.float64))
     narrow = measure_slit(closed_px, opened2.pixels.astype(np.float64))
-    values = combine(solution, wide, narrow, binning=binning, roi=roi, rot_pa=rot_pa)
+    values = combine(
+        solution,
+        wide,
+        narrow,
+        binning=binning,
+        roi=roi,
+        rot_pa=rot_pa,
+        closed_width_arcsec=closed_width,
+    )
     commanded = position / slit.conf.current.um_per_arcsec
     significance = min(wide.significance, narrow.significance)
     progress(1.0, "done")
@@ -271,6 +309,7 @@ async def measure(
         slit_position_um=position,
         slit_position2_um=position2,
         slit_width_commanded_arcsec=commanded,
+        closed_width_arcsec=closed_width,
         north_deg=solution.north_deg,
         solve_confidence=solution.confidence,
         solve_logodds=solution.logodds,

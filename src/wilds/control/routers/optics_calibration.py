@@ -68,7 +68,7 @@ class OpticsRequest(BaseModel):
     slit_width_arcsec: float = Field(
         oc.DEFAULT_WIDTH_ARCSEC,
         gt=0,
-        description="The measuring gap: a strip, narrower than the slit is long (it is also "
+        description="The measuring gap, up to the slit's widest, 4 arcsec (it is also "
         "measured at half this width)",
     )
     nominal_scale_arcsec_px: float | None = Field(
@@ -135,7 +135,15 @@ async def run_calibration(
         raise ApiError(
             422,
             "invalid",
-            f"a {request.slit_width_arcsec:g} arcsec gap is outside the slit's travel",
+            f"a {request.slit_width_arcsec:g} arcsec gap (or its half) is outside the slit's range, "
+            f"{lo / slit.conf.current.um_per_arcsec:g} to {hi / slit.conf.current.um_per_arcsec:g} arcsec",
+        )
+    if um2 < oc.NARROW_CLEARANCE * status.closed_um:
+        raise ApiError(
+            422,
+            "invalid",
+            f"half of {request.slit_width_arcsec:g} arcsec is too close to the slit's narrowest gap "
+            f"({status.closed_um / slit.conf.current.um_per_arcsec:g} arcsec) to be told from it",
         )
     nominal = (
         request.nominal_scale_arcsec_px

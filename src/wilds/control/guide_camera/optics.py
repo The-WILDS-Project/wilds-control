@@ -36,7 +36,7 @@ class SimulatedOptics(BaseModel):
     # The slit's long axis in the image. A little off the orientation: the rotator's zero is not
     # quite where the slit points north (a few tenths of a degree, as in a real instrument).
     slit_angle_deg: float = 31.4
-    slit_length_arcsec: float = 30.0
+    slit_length_arcsec: float = 90.0  # 1.5 arcmin (WILDS PDR, Nov 2026)
     leak: float = Field(default=0.03, ge=0, le=1)  # the share of light seen through the gap (it is dark)
 
     def slit_axes(self) -> tuple[tuple[float, float], tuple[float, float]]:

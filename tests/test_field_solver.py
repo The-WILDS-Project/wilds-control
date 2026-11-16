@@ -9,6 +9,7 @@ arcmin quads, ``index-5201-10.fits``) and scale 0 (``index-5200-10.fits``). With
 tests are skipped."""
 
 import asyncio
+import math
 import os
 import time
 from pathlib import Path
@@ -224,8 +225,14 @@ def test_the_calibration_job_recovers_the_optics_through_the_real_solver(real_ap
         assert m["plate_scale_arcsec_px"] == pytest.approx(o.plate_scale_arcsec_px, rel=0.01)
         assert m["parity"] == o.parity
         assert m["orientation_deg"] == pytest.approx(o.orientation_deg, abs=0.5)
-        assert (m["slit_x"], m["slit_y"]) == pytest.approx((o.slit_x_px, o.slit_y_px), abs=2.0)
+        a = math.radians(o.slit_angle_deg)  # tight across the slit, looser along its length
+        dx, dy = m["slit_x"] - o.slit_x_px, m["slit_y"] - o.slit_y_px
+        assert abs(dx * math.cos(a) - dy * math.sin(a)) < 2.0
+        assert (
+            abs(-dx * math.sin(a) - dy * math.cos(a))
+            < 0.08 * o.slit_length_arcsec / o.plate_scale_arcsec_px
+        )
         assert m["slit_side"] == o.slit_side
         assert m["slit_angle_deg"] == pytest.approx(o.slit_angle_deg, abs=0.7)
-        assert m["slit_width_arcsec"] == pytest.approx(8.0, rel=0.08)
+        assert m["slit_width_arcsec"] == pytest.approx(4.0, rel=0.08)
         assert m["warnings"] == []

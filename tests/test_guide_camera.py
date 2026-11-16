@@ -602,7 +602,7 @@ def test_the_simulated_camera_seeds_a_slit_only_when_asked_and_never_over_a_valu
     assert camera.cal.current.plate_scale_arcsec_px is None  # not by default
     _seed_simulated_calibration(camera)
     cal = camera.cal.current
-    assert cal.plate_scale_arcsec_px == 0.25 and cal.slit_length_arcsec == 30.0
+    assert cal.plate_scale_arcsec_px == 0.25 and cal.slit_length_arcsec == 90.0
     assert (cal.slit_pixel_x, cal.slit_pixel_y) == (648.0, 441.0) and cal.parity == 1
     camera.cal.patch({"plate_scale_arcsec_px": 0.3}, who=ARIE)
     _seed_simulated_calibration(camera)  # already set: left alone
