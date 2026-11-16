@@ -114,7 +114,9 @@ def fresh_cover(monkeypatch):
     from wilds.control import cover
 
     monkeypatch.setattr(
-        cover, "SimulatedCover", functools.partial(cover.SimulatedCover, travel_s=0.1)
+        cover,
+        "SimulatedCover",
+        functools.partial(cover.SimulatedCover, travel_s=0.1, telemetry_period_s=0.02),
     )
     cover.reset()
     yield

@@ -13,8 +13,10 @@ from .base import (
     CoverError,
     CoverState,
     CoverStatus,
+    CubeReport,
+    CubeStatus,
 )
-from .ldt import LdtCover, stage_command_xml
+from .ldt import LdtCover, cube_report, stage_command_xml
 from .simulated import SimulatedCover
 
 __all__ = [
@@ -25,9 +27,12 @@ __all__ = [
     "CoverError",
     "CoverState",
     "CoverStatus",
+    "CubeReport",
+    "CubeStatus",
     "LdtCover",
     "SimulatedCover",
     "close_cover",
+    "cube_report",
     "get_cover",
     "reset",
     "stage_command_xml",
@@ -39,24 +44,40 @@ _cover: CoverBase | None = None
 
 
 def _ldt_cover() -> LdtCover:
-    """The real cover: a broker connection made on the first command, to ``[broker] host``."""
+    """The real cover: a broker connection made at start-up (to listen to the instrument cube),
+    or on the first command, to ``[broker] host``."""
     from wilds.bridge.broker import LDTBroker
-    from wilds.bridge.config import BrokerConfig
+    from wilds.bridge.config import TOPIC_INSTRUMENT_CUBE, BrokerConfig
 
     broker: LDTBroker | None = None
 
-    async def send(xml: str) -> None:
+    async def connect() -> LDTBroker:
         nonlocal broker
         if broker is None:
-            broker = LDTBroker(BrokerConfig(host=config.get().broker.host or ""))
-            await broker.start()
-        await broker.send_stage_command(xml)
+            made = LDTBroker(BrokerConfig(host=config.get().broker.host or ""))
+
+            async def on_cube(telemetry: object) -> None:
+                cover.feed(cube_report(telemetry))
+
+            made.add_callback(TOPIC_INSTRUMENT_CUBE, on_cube)
+            await made.start()
+            broker = made
+        return broker
+
+    async def send(xml: str) -> None:
+        await (await connect()).send_stage_command(xml)
+
+    async def listen() -> None:
+        await connect()
 
     async def stop() -> None:
+        nonlocal broker
         if broker is not None:
             await broker.stop()
+            broker = None
 
-    return LdtCover(send=send, stop=stop)
+    cover = LdtCover(send=send, listen=listen, stop=stop)
+    return cover
 
 
 def get_cover() -> CoverBase:
