@@ -58,9 +58,28 @@ def test_an_open_slit_casts_a_dark_gap_and_a_closed_one_almost_none():
     o = SimulatedOptics()
     wide = camera(o, [15.7])._electrons(CaptureSettings(exposure_s=EXPOSURE))
     shut = camera(o, [0.016])._electrons(CaptureSettings(exposure_s=EXPOSURE))
-    x, y = round(o.slit_x_px), round(o.slit_y_px)
+    x, y = (round(c) for c in o.gap_centre(15.7))
     assert wide[y, x] < 0.1 * shut[y, x]  # the gap is dark where the slit is
     assert wide[10, 10] == pytest.approx(shut[10, 10], rel=0.05)  # and nothing changes far away
+
+
+@pytest.mark.parametrize("side", [1, -1])
+def test_only_one_jaw_moves_so_the_gap_grows_from_a_fixed_edge(side):
+    o = SimulatedOptics(slit_side=side, slit_angle_deg=0.0)  # the slit is vertical: across is x
+    shut = camera(o, [0.016])._electrons(CaptureSettings(exposure_s=EXPOSURE))
+    x0, y = round(o.slit_x_px), round(o.slit_y_px)
+    for width in (4.0, 16.0):
+        e = camera(o, [width])._electrons(CaptureSettings(exposure_s=EXPOSURE))
+        edge_px = width / o.plate_scale_arcsec_px
+        inside = x0 + side * round(edge_px / 2)  # half way across the gap
+        beyond = x0 - side * 6  # just the other side of the fixed edge: jaw, not gap
+        far = x0 + side * round(edge_px + 6)  # past the moving edge: jaw again
+        assert e[y, inside] < 0.1 * shut[y, inside]
+        assert e[y, beyond] == pytest.approx(shut[y, beyond], rel=0.05)
+        assert e[y, far] == pytest.approx(shut[y, far], rel=0.05)
+    cx, cy = o.gap_centre(16.0)
+    assert (cx - x0) * side == pytest.approx(16.0 / o.plate_scale_arcsec_px / 2)  # half the width
+    assert cy == pytest.approx(o.slit_y_px)
 
 
 def test_with_no_width_there_is_no_shadow():
@@ -76,7 +95,8 @@ def test_the_shadow_does_not_dim_the_dark_current():
     e = cam._electrons(CaptureSettings(exposure_s=10.0))
     # inside the gap what is left is the leak of the light plus the (untouched) dark current
     dark = 0.4 * 10.0
-    assert e[round(o.slit_y_px), round(o.slit_x_px)] >= dark
+    x, y = (round(c) for c in o.gap_centre(15.7))
+    assert e[y, x] >= dark
 
 
 # -- finding it ---------------------------------------------------------------------------
@@ -86,7 +106,7 @@ def test_the_shadow_does_not_dim_the_dark_current():
 def test_the_wide_open_gap_is_found_with_its_direction_and_size(angle):
     o = SimulatedOptics(slit_angle_deg=angle)
     m = measure_slit(*pair(15.7, o))
-    assert (m.x, m.y) == pytest.approx((o.slit_x_px, o.slit_y_px), abs=0.5)
+    assert (m.x, m.y) == pytest.approx(o.gap_centre(15.7), abs=0.5)
     assert m.angle_deg == pytest.approx(angle, abs=0.4)
     assert m.length_px == pytest.approx(o.slit_length_arcsec / o.plate_scale_arcsec_px, abs=2.0)
     assert m.width_px == pytest.approx(15.7 / o.plate_scale_arcsec_px, abs=2.0)
@@ -105,7 +125,7 @@ def test_the_working_one_arcsec_slit_is_found_too(angle):
         (-np.sin(np.radians(angle)), -np.cos(np.radians(angle))),
         (np.cos(np.radians(angle)), -np.sin(np.radians(angle))),
     )
-    dx, dy = m.x - o.slit_x_px, m.y - o.slit_y_px
+    dx, dy = m.x - o.gap_centre(1.0)[0], m.y - o.gap_centre(1.0)[1]
     assert abs(dx * vx + dy * vy) < 0.6  # across
     assert abs(dx * ux + dy * uy) < 2.5  # along
     assert m.length_px == pytest.approx(o.slit_length_arcsec / o.plate_scale_arcsec_px, abs=5.0)

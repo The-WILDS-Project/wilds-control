@@ -1,7 +1,9 @@
 """The slit stage's abstract base (plan §3.3, §3.17).
 
-The slit is a gap between two jaws that a stage opens and closes, symmetrically about a fixed
-centre: the stage position is the gap's width in microns at the telescope's focal plane. The guide
+The slit is a gap between two jaws that a stage opens and closes. Only one jaw moves, so the gap
+does not open symmetrically: its edge on the fixed jaw stays put and its centre moves with half
+the width (the optics calibration finds the fixed edge and which way the gap grows). The stage
+position is the gap's width in microns at the telescope's focal plane. The guide
 camera looks at the sky reflected from the jaws, so the slit shows as a dark strip (see the
 calibration). Two named positions are kept in ``conf``: ``closed`` (near the stage's lower
 limit, no light reaches the spectrograph) and ``open`` (its full travel); any position in between

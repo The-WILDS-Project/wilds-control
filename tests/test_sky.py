@@ -193,14 +193,15 @@ def test_the_cameras_real_sky_follows_the_telescopes_target_pointing_and_rotator
     from wilds.control.telescope import Offset, Target
 
     camera = guide_camera.get_guide_camera()
-    camera.optics = SimulatedOptics(slit_x_px=648.0, slit_y_px=441.0)  # mid-frame, as the stars
+    camera.optics = SimulatedOptics(slit_x_px=648.0, slit_y_px=441.0)  # the slit's fixed edge
+    cx, cy = camera.optics.gap_centre()  # the telescope points at the middle of the working gap
     s = Sky(CountingSource(), SENSOR)
     tel = telescope.get_telescope()
     assert real_sky(camera, s) is None  # no target yet: the invented field
     tel._send_target(Target(name="x", ra_hours=RA0 / 15.0, dec_deg=DEC0), 0.0, "Target")
     x, y, _ = real_sky(camera, s)
-    here = (x[np.argmin(np.hypot(x - 648, y - 441))], y[np.argmin(np.hypot(x - 648, y - 441))])
-    assert here == pytest.approx((648.0, 441.0), abs=0.05)  # the star on the target: on the slit
+    nearest = np.argmin(np.hypot(x - cx, y - cy))
+    assert (x[nearest], y[nearest]) == pytest.approx((cx, cy), abs=0.05)  # the target on the slit
     tel._send_offset("Handset", Offset(d1_arcsec=5.0, d2_arcsec=0.0), "TPLANE")
     x2, _, _ = real_sky(camera, s)
     assert x2.max() > x.max() - 1e-9 and not np.allclose(np.sort(x2), np.sort(x))  # the field moved

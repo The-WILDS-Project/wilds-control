@@ -656,7 +656,7 @@ def test_the_telescopes_offsets_and_rotator_move_the_simulated_camera_field(clie
     a = math.radians(25.0)  # north is 25 degrees counter-clockwise from up
     east = (-math.cos(a), math.sin(a))
     assert (dx, dy) == pytest.approx((-20 * east[0], -20 * east[1]))
-    assert rot == 0.0 and (cx, cy) == (648.0, 441.0)
+    assert rot == 0.0 and (cx, cy) == pytest.approx(camera.optics.gap_centre())  # the working gap
     tel._send_target(Target(name="x", ra_hours=3.0, dec_deg=20.0), 40.0, "Target")
     later = tel.clock() + 10_000.0
     tel.clock = lambda: later  # long after: the rotator has arrived

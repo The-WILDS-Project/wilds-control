@@ -3,7 +3,9 @@
 Starting it needs the control lease and is a job that reserves the camera, the slit stage and the
 telescope (nothing may move the field meanwhile). The telescope must be on a star field and the
 instrument cover closed. It closes the slit, takes a frame and plate solves it, opens the slit to a
-measuring width, takes another, and finds the gap in the difference. The result is a measurement
+measuring width and to half of it, takes a frame at each, and finds the gap in the differences. Only
+one jaw of the slit moves, so the two gaps also say where the fixed jaw's edge is and which way
+the gap grows from it. The result is a measurement
 and nothing more: ``GET /calibration/optics/last`` shows it with its warnings, and
 ``POST /calibration/optics/apply`` (naming the measurement) writes it into the camera's
 calibration, with who and when.
@@ -54,7 +56,7 @@ class OpticsRequest(BaseModel):
         4.0,
         ge=EXPOSURE_RANGE_S[0],
         le=EXPOSURE_RANGE_S[1],
-        description="Each of the two frames; the gap is faint, so longer is better",
+        description="Each of the three frames; the gap is faint, so longer is better",
     )
     gain: int | None = Field(
         None,
@@ -66,7 +68,8 @@ class OpticsRequest(BaseModel):
     slit_width_arcsec: float = Field(
         oc.DEFAULT_WIDTH_ARCSEC,
         gt=0,
-        description="The measuring gap: a strip, narrower than the slit is long",
+        description="The measuring gap: a strip, narrower than the slit is long (it is also "
+        "measured at half this width)",
     )
     nominal_scale_arcsec_px: float | None = Field(
         None,
@@ -125,9 +128,10 @@ async def run_calibration(
     check_ready(camera, slit, telescope, cover)
     settings = settings_for(request, camera)
     um = slit.um_for_arcsec(request.slit_width_arcsec)
+    um2 = slit.um_for_arcsec(request.slit_width_arcsec * oc.NARROW_FRACTION)
     status = slit.status()
     lo, hi = status.min_um, status.max_um
-    if not lo <= um <= hi:
+    if not (lo <= um <= hi and lo <= um2 <= hi):
         raise ApiError(
             422,
             "invalid",
@@ -195,7 +199,7 @@ class ApplyRequest(BaseModel):
 @router.post("/apply", dependencies=[NeedsLease])
 async def apply(body: ApplyRequest, camera: Camera, me: Me) -> dict:
     """Write the last measurement into the camera's calibration (plate scale, orientation, parity,
-    slit pixel, slit angle, slit length). ``409 conflict`` if it is not the one named."""
+    the slit's fixed edge and the side the gap grows to, slit angle, slit length). ``409 conflict`` if it is not the one named."""
     m = oc.last()
     if m is None or m.taken_ms != body.taken_ms:
         raise _conflict("that measurement is not the latest: run it again or fetch the latest")

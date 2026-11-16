@@ -225,6 +225,7 @@ def test_the_calibration_job_recovers_the_optics_through_the_real_solver(real_ap
         assert m["parity"] == o.parity
         assert m["orientation_deg"] == pytest.approx(o.orientation_deg, abs=0.5)
         assert (m["slit_x"], m["slit_y"]) == pytest.approx((o.slit_x_px, o.slit_y_px), abs=2.0)
+        assert m["slit_side"] == o.slit_side
         assert m["slit_angle_deg"] == pytest.approx(o.slit_angle_deg, abs=0.7)
         assert m["slit_width_arcsec"] == pytest.approx(8.0, rel=0.08)
         assert m["warnings"] == []

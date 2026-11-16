@@ -151,8 +151,22 @@ class GuideCameraCal(ConfModel):
     None until measured; a procedure that needs one calls ``camera.cal.require(...)``."""
 
     plate_scale_arcsec_px: float | None = setting(None, unit="arcsec/px", label="Plate scale", gt=0)
-    slit_pixel_x: float | None = setting(None, unit="px", label="Slit pixel x")
+    slit_pixel_x: float | None = setting(
+        None,
+        unit="px",
+        label="Slit pixel x",
+        help="The edge of the slit's fixed jaw, at the middle of the slit's length. Only one jaw "
+        "moves, so the gap is not centred here: it runs from this edge to the width away, on the "
+        "side the slit side says",
+    )
     slit_pixel_y: float | None = setting(None, unit="px", label="Slit pixel y")
+    slit_side: Literal[1, -1] = setting(
+        1,
+        label="Slit side",
+        help="Which way the gap grows from the fixed jaw: +1 to the right of the slit's long axis, "
+        "-1 to the left, looking along the axis towards the end that points up when the slit "
+        "angle is 0. Measured by the optics calibration",
+    )
     orientation_deg: float | None = setting(
         None,
         unit="°",
