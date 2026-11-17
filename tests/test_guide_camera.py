@@ -530,7 +530,7 @@ def test_calibration_values_start_unset_and_a_procedure_that_needs_one_is_refuse
 def test_the_handles_are_in_the_registry_for_the_config_endpoints(client):
     from wilds.control.conf import confs
 
-    assert confs.components() == ["guide-camera", "shutter", "slit", "telescope"]
+    assert confs.components() == ["adc", "guide-camera", "shutter", "slit", "telescope"]
     assert confs.slices("guide-camera") == [
         "cal",
         "conf",

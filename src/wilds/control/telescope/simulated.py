@@ -8,6 +8,7 @@ from typing import ClassVar
 
 from pydantic import PrivateAttr
 
+from ..site import horizontal
 from .base import (
     Offset,
     OffsetNum,
@@ -31,6 +32,7 @@ class SimulatedTelescope(TelescopeBase):
     offset_s: float = 0.6
     accepts_commands: bool = True
     clock: object = time.monotonic
+    utc: object = time.time  # the wall clock, for where the target is in the sky
 
     _lock: threading.Lock = PrivateAttr(default_factory=threading.Lock)
     _target: Target | None = PrivateAttr(default=None)
@@ -103,8 +105,20 @@ class SimulatedTelescope(TelescopeBase):
                 or now < self._offset_until
                 or abs(_shortest(self._rot_goal - rot)) > 0.01
             )
+            sky = (
+                None
+                if self._target is None
+                else horizontal(
+                    self._target.ra_hours,
+                    self._target.dec_deg,
+                    self.utc(),  # type: ignore[operator]
+                )
+            )
             return Telemetry(
                 target=self._target,
+                zenith_distance_deg=None if sky is None else sky.zenith_distance_deg,
+                azimuth_deg=None if sky is None else sky.azimuth_deg,
+                parallactic_angle_deg=None if sky is None else sky.parallactic_angle_deg,
                 rot_pa=rot,
                 rot_goal=self._rot_goal,
                 rot_frame=self._rot_frame,

@@ -382,3 +382,48 @@ def test_an_unstarted_camera_is_not_touched_by_a_settings_change_but_startup_app
         assert before > 0  # still ambient: nothing was written to the hardware
         wait_job(c, c.post("/system/startup", headers=TO).json()["id"])
         assert cam.cooler().enabled and cam.cooler().setpoint_c == -20
+
+
+# -- an optional component that is not installed ------------------------------------------
+
+
+async def test_an_absent_component_is_never_operational_and_is_left_alone_by_start_and_shut_down():
+    seen = []
+    here = {"installed": False}
+    life = part(
+        "adc",
+        startup=lambda: seen.append("start"),
+        shutdown=lambda: seen.append("stop"),
+        absent=lambda: not here["installed"],
+    )
+    assert not life.present and life.why_not_operational() == ["not installed"]
+    status = await life.startup()
+    assert seen == [] and not status.present and not status.operational
+    await life.shutdown()
+    assert seen == []  # not touched
+    here["installed"] = True  # put in: an ordinary component again
+    assert life.present and life.why_not_operational() == ["not started up"]
+    await life.startup()
+    assert seen == ["start"] and life.operational
+
+
+async def test_the_system_ignores_a_component_that_is_not_installed():
+    from wilds.control.lifecycle import System
+
+    here = {"installed": False}
+    system = System()
+    base = part("slit", startup=lambda: None)
+    optional = part("adc", startup=lambda: None, absent=lambda: not here["installed"])
+    system.register(base)
+    system.register(optional)
+    status = await system.startup()
+    assert status.opstate is OpState.startedup and status.operational
+    assert status.why_not_operational == []  # the missing ADC does not count against WILDS
+    assert status.components["adc"].present is False and status.components["slit"].present is True
+    assert optional.opstate is OpState.initialized  # it was not started
+    here["installed"] = True  # now it is part of the instrument, and not started up
+    status = system.status()
+    assert not status.operational and status.opstate is OpState.initialized
+    assert any("adc" in r for r in status.why_not_operational)
+    status = await system.startup()
+    assert status.opstate is OpState.startedup and status.operational
