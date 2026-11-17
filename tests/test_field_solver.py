@@ -168,10 +168,9 @@ def real_app(config_file, passphrases_file):
         f'[sky]\nfield_file = "{M13_FIELD}"\n'
         f'[solver]\nkind = "astrometry"\nindex_dir = "{INDEX_DIR}"\nscales = {SCALES}\n'
     )
-    passphrases_file('[passphrases]\nto = "to-pass"\nengineering = "eng-pass"\n')
+    passphrases_file('[passphrases]\nto = "to-pass"\n')
     lease.state.sessions.clear()
     lease.state.holder_id = lease.state.token = None
-    lease.state.engineering = False
     manager.reset()
     registry.clear()
     yield create_app()

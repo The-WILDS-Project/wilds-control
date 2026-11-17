@@ -35,7 +35,6 @@ class ControlLease(BaseModel):
     holder: str | None = None
     holder_code: str | None = None
     holder_info: str | None = None  # where the holder comes from, plain text
-    engineering: bool = False
 
 
 class TcsStatus(BaseModel):
@@ -129,7 +128,6 @@ def current_status() -> Status:
             holder=holder.name if holder else None,
             holder_code=holder.code if holder else None,
             holder_info=holder.prov.summary() if holder and holder.prov else None,
-            engineering=lease.engineering,
         ),
         time=ServerTime(utc_ms=time.time_ns() // 1_000_000, zone=config.get().site.timezone),
         to=ToStatus(online=lease.to_online),

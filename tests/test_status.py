@@ -26,7 +26,7 @@ def test_status_snapshot_has_the_shape_the_gui_expects():
         "warnings",
         "actions",
     }
-    assert body["control"]["holder"] is None and body["control"]["engineering"] is False
+    assert body["control"]["holder"] is None and "engineering" not in body["control"]
     assert body["tcs"]["stale"] is True
 
 

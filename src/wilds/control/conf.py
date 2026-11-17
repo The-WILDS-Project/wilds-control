@@ -6,7 +6,7 @@ the settings store (``settings_store.py``) and reached through a :class:`ConfHan
 * ``component.conf``: **operational** settings (exposure, gain, presets, a cooler setpoint);
   the control holder may change them.
 * ``component.cal``: **calibration** values (plate scale, slit pixel, focus offset, ADC zero
-  points); the holder in engineering mode may change them, each change is a recorded version,
+  points); whoever holds control may change them, each change is a recorded version,
   and they default to ``None`` ("not calibrated"): procedures that need one call
   :meth:`ConfHandle.require`, which refuses with a clear error instead of using a made-up
   number. Separate slices keep calibrations from drowning in the churn of operational tweaks.

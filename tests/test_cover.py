@@ -85,15 +85,6 @@ def test_moving_it_needs_the_lease_but_reading_does_not(client):
     assert client.post("/cover/close").status_code == 403
 
 
-def test_engineering_may_move_it_too(client, passphrases_file):
-    passphrases_file('[passphrases]\nto = "to-pass"\nengineering = "eng-pass"\n')
-    s = client.post("/sessions", json={"name": "Eve"}).json()
-    sid = {"X-Session-Id": s["session_id"]}
-    client.post("/control/engineering", json={"passphrase": "eng-pass"}, headers=sid)
-    token = client.post(f"/sessions/{s['session_id']}/heartbeat").json()["lease_token"]
-    assert client.post("/cover/close", headers={**sid, "X-Lease-Token": token}).status_code == 200
-
-
 def test_it_is_not_moved_until_started_up(client):
     h = hold_lease(client)
     client.post("/system/cover/shutdown", headers=TO)

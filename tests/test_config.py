@@ -6,40 +6,44 @@ from fastapi.testclient import TestClient
 
 from wilds.control import config, lease
 from wilds.control.app import create_app
-from wilds.control.routers.control import require_engineering
+from wilds.control.routers.control import require_lease
 
 
 def test_without_a_file_the_defaults_apply_and_nobody_is_nagged():
-    assert config.check_engineering("physics")
-    assert not config.check_engineering("nope")
     assert not config.check_to("anything")  # TO endpoints stay closed until configured
-    assert config.get().warnings() == []  # the default engineering passphrase is accepted
+    assert config.get().warnings() == []
 
 
 def test_a_file_sets_the_passphrases(config_file, passphrases_file):
+    passphrases_file('[passphrases]\nto = "scope"\n')
+    assert config.check_to("scope") and not config.check_to("physics")
+    assert config.get().warnings() == []
+
+
+def test_an_engineering_passphrase_left_in_the_file_is_ignored(config_file, passphrases_file):
+    # there is no engineering mode any more: an old passphrases.toml still loads
     passphrases_file('[passphrases]\nengineering = "quarks"\nto = "scope"\n')
-    assert config.check_engineering("quarks") and not config.check_engineering("physics")
-    assert config.check_to("scope")
+    assert config.check_to("scope") and not hasattr(config.get().passphrases, "engineering")
     assert config.get().warnings() == []
 
 
 def test_a_changed_file_applies_without_a_restart(config_file, passphrases_file):
-    passphrases_file('[passphrases]\nengineering = "one"\n')
-    assert config.check_engineering("one")
-    passphrases_file('[passphrases]\nengineering = "two"\n')
-    assert config.check_engineering("two") and not config.check_engineering("one")
+    passphrases_file('[passphrases]\nto = "one"\n')
+    assert config.check_to("one")
+    passphrases_file('[passphrases]\nto = "two"\n')
+    assert config.check_to("two") and not config.check_to("one")
 
 
 def test_an_invalid_file_is_rejected_whole_and_the_running_config_kept(
     config_file, caplog, passphrases_file
 ):
-    passphrases_file('[passphrases]\nengineering = "one"\n')
-    assert config.check_engineering("one")
+    passphrases_file('[passphrases]\nto = "one"\n')
+    assert config.check_to("one")
     with caplog.at_level(logging.ERROR):
         passphrases_file("[passphrases\nbroken")
-        assert config.check_engineering("one")
-        passphrases_file("[passphrases]\nengineering = 12\n")  # wrong type
-        assert config.check_engineering("one")
+        assert config.check_to("one")
+        passphrases_file("[passphrases]\nto = 12\n")  # wrong type
+        assert config.check_to("one")
     assert "rejected" in caplog.text
 
 
@@ -48,7 +52,7 @@ def test_status_has_no_warnings_by_default_and_reports_an_ignored_section(
 ):
     client = TestClient(create_app())
     assert client.get("/status").json()["warnings"] == []
-    config_file('[passphrases]\nengineering = "x"\n')
+    config_file('[passphrases]\nto = "x"\n')
     warnings = client.get("/status").json()["warnings"]
     assert len(warnings) == 1 and "passphrases.toml" in warnings[0]
 
@@ -57,36 +61,29 @@ def test_status_has_no_warnings_by_default_and_reports_an_ignored_section(
 def protected():
     app = FastAPI()
 
-    @app.post("/calibrate", dependencies=[Depends(require_engineering)])
+    @app.post("/calibrate", dependencies=[Depends(require_lease)])
     def calibrate() -> dict[str, bool]:
         return {"ok": True}
 
     app.include_router(create_app().router)
     lease.state.sessions.clear()
     lease.state.holder_id = lease.state.token = None
-    lease.state.engineering = False
     return TestClient(app)
 
 
-def test_calibration_needs_the_lease_in_engineering_mode(protected, config_file, passphrases_file):
+def test_calibration_needs_the_lease_and_nothing_else(protected, config_file, passphrases_file):
     passphrases_file('[passphrases]\nto = "t"\n')
     assert protected.post("/calibrate").status_code == 403  # no token
 
     s = protected.post("/sessions", json={"name": "A"}).json()
-    sid = {"X-Session-Id": s["session_id"]}
     protected.post(f"/control/requests/{s['code']}/grant", headers={"X-TO-Passphrase": "t"})
     token = protected.post(f"/sessions/{s['session_id']}/heartbeat").json()["lease_token"]
-    r = protected.post("/calibrate", headers={"X-Lease-Token": token})
-    assert r.status_code == 403 and "Engineering" in r.json()["detail"]  # TO grant is not enough
-
-    assert (
-        protected.post(
-            "/control/engineering", json={"passphrase": "physics"}, headers=sid
-        ).status_code
-        == 200
-    )
-    token = protected.post(f"/sessions/{s['session_id']}/heartbeat").json()["lease_token"]
+    # whoever holds control may calibrate: there is no separate engineering mode
     assert protected.post("/calibrate", headers={"X-Lease-Token": token}).status_code == 200
+    assert protected.post("/control/engineering", json={"passphrase": "physics"}).status_code in (
+        404,
+        405,
+    )
 
 
 class Clock:
@@ -144,12 +141,11 @@ def test_the_ldt_zone_is_configurable_and_a_bad_zone_is_rejected(config_file, ca
 def test_a_passphrases_section_in_config_toml_is_ignored_with_a_warning(
     config_file, passphrases_file
 ):
-    config_file('[passphrases]\nengineering = "sneaky"\nto = "sneaky"\n')
-    assert config.check_engineering("physics") and not config.check_engineering("sneaky")
+    config_file('[passphrases]\nto = "sneaky"\n')
     assert not config.check_to("sneaky")
     assert any("passphrases.toml" in w for w in config.get().warnings())
-    passphrases_file('[passphrases]\nengineering = "real"\nto = "scope"\n')
-    assert config.check_engineering("real") and config.check_to("scope")
+    passphrases_file('[passphrases]\nto = "scope"\n')
+    assert config.check_to("scope")
 
 
 def test_each_file_applies_on_its_own(config_file, passphrases_file):
@@ -163,20 +159,20 @@ def test_each_file_applies_on_its_own(config_file, passphrases_file):
 
 
 def test_the_passphrases_file_holds_nothing_but_the_section(passphrases_file, caplog):
-    passphrases_file('[passphrases]\nengineering = "one"\n')
-    assert config.check_engineering("one")
+    passphrases_file('[passphrases]\nto = "one"\n')
+    assert config.check_to("one")
     with caplog.at_level(logging.ERROR):
-        passphrases_file('opmode = "ldt-production"\n[passphrases]\nengineering = "two"\n')
-        assert config.check_engineering("one")  # rejected whole, the running one kept
+        passphrases_file('opmode = "ldt-production"\n[passphrases]\nto = "two"\n')
+        assert config.check_to("one")  # rejected whole, the running one kept
     assert "rejected" in caplog.text
 
 
 def test_a_broken_config_toml_keeps_the_passphrases_too(config_file, passphrases_file, caplog):
-    passphrases_file('[passphrases]\nengineering = "one"\n')
-    assert config.check_engineering("one")
+    passphrases_file('[passphrases]\nto = "one"\n')
+    assert config.check_to("one")
     with caplog.at_level(logging.ERROR):
         config_file("opmode = ")
-        assert config.check_engineering("one")
+        assert config.check_to("one")
     assert "rejected" in caplog.text
 
 

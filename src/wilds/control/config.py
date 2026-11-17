@@ -28,11 +28,8 @@ from . import paths
 
 log = logging.getLogger(__name__)
 
-DEFAULT_ENGINEERING_PASSPHRASE = "physics"
-
 
 class Passphrases(BaseModel):
-    engineering: str = DEFAULT_ENGINEERING_PASSPHRASE
     to: str | None = None  # the TO endpoints stay closed until this is set
 
 
@@ -298,10 +295,6 @@ def get() -> Config:
 
 def _matches(given: str | None, expected: str | None) -> bool:
     return bool(expected) and given is not None and secrets.compare_digest(given, expected)
-
-
-def check_engineering(given: str | None) -> bool:
-    return _matches(given, get().passphrases.engineering)
 
 
 def check_to(given: str | None) -> bool:
