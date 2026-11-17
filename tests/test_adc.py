@@ -195,16 +195,40 @@ async def test_a_changed_zero_point_changes_the_angles_at_once_without_a_move():
     assert adc.angles == (110.0, 80.0)
 
 
-async def test_the_pairs_are_unknown_while_they_move_and_a_second_move_is_refused():
-    adc = await started(speed_deg_s=100.0)
+async def test_the_pairs_are_seen_turning_while_they_move_and_a_second_move_is_refused():
+    adc = await started(speed_deg_s=100.0)  # 90 degrees takes 0.9 s
     task = asyncio.create_task(adc.move_to(90.0, 270.0))
-    await asyncio.sleep(0.05)
-    assert adc.status().moving and adc.status().pair1_deg is None
-    assert adc.activities.names == ["Moving"]
+    await asyncio.sleep(0.3)
+    s = adc.status()
+    assert s.moving and adc.activities.names == ["Moving"]
+    # part of the way: pair 1 from 0 towards 90, pair 2 from 0 the short way round towards 270 (-90)
+    assert 5.0 < s.pair1_deg < 85.0
+    assert 275.0 < s.pair2_deg < 355.0
+    assert (s.goal1_deg, s.goal2_deg) == (90.0, 270.0)
+    assert s.stage1_deg == s.pair1_deg  # no zero point
+    assert s.dispersion_arcsec is not None and s.direction_deg is not None
     with pytest.raises(AdcBusy):
         await adc.move_to(0.0, 0.0)
+    first = s.pair1_deg
+    await asyncio.sleep(0.3)
+    assert adc.status().pair1_deg > first  # it keeps going
     await task
+    s = adc.status()
+    assert (
+        (s.pair1_deg, s.pair2_deg) == (90.0, 270.0) and s.goal1_deg is None and s.goal2_deg is None
+    )
     assert adc.activities.names == []
+
+
+async def test_the_live_positions_use_the_zero_points_too():
+    adc = await started(speed_deg_s=100.0)
+    adc.cal.patch({"zero1_deg": 10.0}, who=ARIE)
+    task = asyncio.create_task(adc.move_to(100.0, 0.0))  # the stage goes to 110
+    await asyncio.sleep(0.4)
+    s = adc.status()
+    assert s.stage1_deg == pytest.approx(s.pair1_deg + 10.0)
+    assert s.goal1_deg == pytest.approx(100.0)
+    await task
 
 
 import asyncio  # noqa: E402  (the tests above use it too)
@@ -572,15 +596,17 @@ async def test_a_jog_is_in_the_stages_coordinates_the_zero_points_play_no_part()
     assert adc.status().stage2_deg == 5.0 and adc._at == (50.0, 5.0)
 
 
-async def test_a_jog_shows_as_an_activity_and_the_pairs_are_unknown_meanwhile():
+async def test_a_jog_shows_as_an_activity_and_the_stage_is_seen_turning():
     adc = await started(speed_deg_s=100.0)
     task = asyncio.create_task(adc.jog(2, by_deg=90.0))
-    await asyncio.sleep(0.05)
-    assert adc.status().moving and adc.status().stage2_deg is None
+    await asyncio.sleep(0.3)
+    s = adc.status()
+    assert s.moving and 5.0 < s.stage2_deg < 85.0 and s.stage1_deg == 0.0
     assert adc.activities.names == ["Moving"]
     with pytest.raises(AdcBusy, match="moving"):
         await adc.jog(1, by_deg=1.0)
     await task
+    assert adc.status().stage2_deg == 90.0
 
 
 async def test_a_jog_needs_a_stage_and_an_amount_and_is_refused_while_tracking():

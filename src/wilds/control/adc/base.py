@@ -187,8 +187,12 @@ class AdcTarget(BaseModel):
 class AdcStatus(BaseModel):
     kind: str
     installed: bool  # False: not in the instrument; everything else is as it was, and unused
-    pair1_deg: float | None  # None: not known (not started up, or moving)
+    # Where the pairs are, live: during a move too (the hardware's own reading as it turns). None
+    # only when not known (not started up, or the hardware cannot say).
+    pair1_deg: float | None
     pair2_deg: float | None
+    goal1_deg: float | None  # where a move in progress is going (the pairs' angles); None at rest
+    goal2_deg: float | None
     stage1_deg: (
         float | None
     )  # what the stages themselves read (the pair's angle plus its zero point)
@@ -232,7 +236,9 @@ class AdcBase(BaseModel, abc.ABC):
     _conf: ConfHandle[AdcConf] = PrivateAttr()
     _cal: ConfHandle[AdcCal] = PrivateAttr()
     _life: Lifecycle = PrivateAttr()
-    _raw: tuple[float, float] | None = PrivateAttr(default=None)  # as the stages read
+    _raw: tuple[float, float] | None = PrivateAttr(default=None)  # as the stages read, at rest
+    # Where a move in progress is going, as the stages read (None at rest)
+    _goal: tuple[float, float] | None = PrivateAttr(default=None)
     _referenced: bool = PrivateAttr(default=False)
     _moving: bool = PrivateAttr(default=False)
     _task: asyncio.Task | None = PrivateAttr(default=None)
@@ -249,7 +255,9 @@ class AdcBase(BaseModel, abc.ABC):
 
     @abc.abstractmethod
     def _read_angles(self) -> tuple[float, float] | None:
-        """Where the two stages are now, from the hardware."""
+        """Where the two stages are now, from the hardware. Also asked for while they move (the
+        status shows the pairs turning), from another thread than the move's: it must be quick
+        and must not wait for the move."""
 
     @abc.abstractmethod
     def _move(self, raw1: float, raw2: float) -> None:
@@ -349,11 +357,6 @@ class AdcBase(BaseModel, abc.ABC):
     def tracking(self) -> bool:
         return self._task is not None and self.installed
 
-    def _delivered(self) -> tuple[float, float] | None:
-        """The dispersion and direction the pairs make now."""
-        a = self.angles
-        return None if a is None else model.delivered(*a, self._conf.current.dmax_arcsec)
-
     # -- moving by hand -----------------------------------------------------------------
 
     async def move_to(self, pair1_deg: float, pair2_deg: float) -> tuple[float, float]:
@@ -417,11 +420,13 @@ class AdcBase(BaseModel, abc.ABC):
         if self._moving:
             raise AdcBusy("the ADC is moving")
         self._moving = True
+        self._goal = (r1, r2)
         self.activities.start(AdcActivity.Moving, details=[f"{r1:.1f}°, {r2:.1f}° ({why})"])
         try:
             await asyncio.to_thread(self._turn, r1, r2)
         finally:
             self._moving = False
+            self._goal = None
             self.activities.end(AdcActivity.Moving)
 
     def _turn(self, r1: float, r2: float) -> None:
@@ -529,15 +534,19 @@ class AdcBase(BaseModel, abc.ABC):
 
     def status(self) -> AdcStatus:
         c = self._conf.current
-        a = self.angles
-        raw = None if self._moving else self._raw
-        made = self._delivered()
+        # live: while the stages turn, what the hardware reads as it turns
+        raw = self._read_angles() if self._moving else self._raw
+        a = self._to_user(raw)
+        made = None if a is None else model.delivered(*a, c.dmax_arcsec)
+        goal = None if self._goal is None else self._to_user(self._goal)
         cal = self._cal.current
         return AdcStatus(
             kind=self.kind,
             installed=self.installed,
             pair1_deg=None if a is None else a[0],
             pair2_deg=None if a is None else a[1],
+            goal1_deg=None if goal is None else goal[0],
+            goal2_deg=None if goal is None else goal[1],
             stage1_deg=None if raw is None else raw[0],
             stage2_deg=None if raw is None else raw[1],
             zero1_deg=cal.zero1_deg,
