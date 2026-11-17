@@ -15,6 +15,7 @@ from sse_starlette.sse import EventSourceResponse
 
 from .. import config
 from ..activities import registry
+from ..adc import AdcStatus, get_adc
 from ..conf import confs
 from ..cover import CoverStatus, get_cover
 from ..filing import FilingStatus, get_filing
@@ -82,6 +83,7 @@ class Status(BaseModel):
         None  # target, offsets, rotator, whether the TCS accepts commands
     )
     cover: CoverStatus | None = None  # the instrument cover: open, closed, opening, closing
+    adc: AdcStatus | None = None  # the two prism pairs, and tracking the telescope
     conf_versions: dict[str, int] = Field(default_factory=dict)  # 'component/slice' -> version
     filing: FilingStatus | None = None  # staging, the data share, what waits to be delivered
     jobs: list[Job] = Field(default_factory=list)  # active, then the last few finished
@@ -143,6 +145,7 @@ def current_status() -> Status:
         shutter=get_shutter().status(),
         slit=get_slit().status(),
         cover=get_cover().status(),
+        adc=get_adc().status(),
         telescope=telescope.status(),
         tcs=_tcs(telescope),
         actions=_telescope_actions(telescope),

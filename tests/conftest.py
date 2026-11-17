@@ -85,6 +85,18 @@ def fresh_slit():
 
 
 @pytest.fixture(autouse=True)
+def fresh_adc():
+    """Each test builds its own ADC, with the site's weather."""
+    from wilds.control import adc, weather
+
+    adc.reset()
+    weather.reset()
+    yield
+    adc.reset()
+    weather.reset()
+
+
+@pytest.fixture(autouse=True)
 def fresh_field_solver():
     """Each test builds its own plate solver."""
     from wilds.control import field_solver, optics_calibration

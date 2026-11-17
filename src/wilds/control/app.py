@@ -4,6 +4,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from . import config, errors, paths
+from .adc import close_adc, get_adc
 from .cover import close_cover, get_cover
 from .filing import close_filing, get_filing
 from .guide_camera import close_guide_camera, get_guide_camera
@@ -49,6 +50,7 @@ async def lifespan(app: FastAPI):
     get_shutter()
     get_slit()
     get_cover()
+    get_adc()
     get_telescope()
     get_filing().start()
     if config.get().autostart:
@@ -59,6 +61,7 @@ async def lifespan(app: FastAPI):
     await close_shutter()
     await close_slit()
     await close_cover()
+    await close_adc()
     await close_telescope()
 
 

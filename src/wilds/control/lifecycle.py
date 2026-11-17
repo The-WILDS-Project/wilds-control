@@ -54,6 +54,7 @@ class LifecycleStatus(BaseModel):
     opstate: OpState
     operational: bool
     why_not_operational: list[str] = []
+    present: bool = True  # False: an optional component that is not installed (see ``absent``)
 
 
 class Lifecycle:
@@ -65,6 +66,11 @@ class Lifecycle:
     again (a retry) and to run when the hardware is already up (after a control restart).
     ``shutdown()``: deactivate. ``halt()``: stop whatever the component is doing (used when a
     shutdown is forced). ``why_not()``: the live reasons beyond lifecycle itself.
+
+    ``absent()``: for an optional component (the ADC may not be installed): while it says yes the
+    component is not part of the instrument. It is never operational (its reason is "not
+    installed", so every command is refused with it), start-up and shutdown leave it alone, and
+    the system ignores it: it neither blocks WILDS from being operational nor from being started up.
     """
 
     def __init__(
@@ -78,8 +84,10 @@ class Lifecycle:
         ashutdown: Callable[[], Awaitable[None]] | None = None,
         halt: Callable[[], object] | None = None,
         why_not: Callable[[], list[str]] | None = None,
+        absent: Callable[[], bool] | None = None,
     ):
         self.component = component
+        self._absent = absent
         self._activities = activities
         self._startup, self._shutdown, self._halt, self._why_not = startup, shutdown, halt, why_not
         # The same, for work that belongs on the event loop (listening to a broker): ``astartup``
@@ -99,7 +107,13 @@ class Lifecycle:
     def opstate(self) -> OpState:
         return self._opstate
 
+    @property
+    def present(self) -> bool:
+        return not (self._absent is not None and self._absent())
+
     def why_not_operational(self) -> list[str]:
+        if not self.present:
+            return ["not installed"]
         acts = self.activities
         reasons: list[str] = []
         if acts.is_active(acts.members[STARTING_UP]):
@@ -121,7 +135,10 @@ class Lifecycle:
     def status(self) -> LifecycleStatus:
         reasons = self.why_not_operational()
         return LifecycleStatus(
-            opstate=self._opstate, operational=not reasons, why_not_operational=reasons
+            opstate=self._opstate,
+            operational=not reasons,
+            why_not_operational=reasons,
+            present=self.present,
         )
 
     def require_operational(self) -> None:
@@ -144,6 +161,8 @@ class Lifecycle:
         """Activate the component and try to make it operational. A hardware failure does not
         raise: it ends as ``startedup`` and not operational, with the reason, so a retry is just
         another call. Raises ``409 busy`` if a startup or shutdown is already running."""
+        if not self.present:
+            return self.status()  # not installed: there is nothing to start
         acts = self.activities
         up, down = acts.members[STARTING_UP], acts.members[SHUTTING_DOWN]
         if acts.is_active(up) or acts.is_active(down):
@@ -169,6 +188,8 @@ class Lifecycle:
     async def shutdown(self, *, force: bool = False) -> LifecycleStatus:
         """Deactivate the component. ``409 busy`` while it is doing something, unless ``force``,
         which halts that first."""
+        if not self.present:
+            return self.status()  # not installed: there is nothing to shut down
         acts = self.activities
         up, down = acts.members[STARTING_UP], acts.members[SHUTTING_DOWN]
         if acts.is_active(up) or acts.is_active(down):
@@ -297,8 +318,9 @@ class System:
 
     def status(self) -> SystemStatus:
         parts = {c: self._lives[c].status() for c in self.components}
-        reasons = [f"{c}: {r}" for c, s in parts.items() for r in s.why_not_operational]
-        states = {s.opstate for s in parts.values()}
+        here = {c: s for c, s in parts.items() if s.present}  # not installed: not part of WILDS
+        reasons = [f"{c}: {r}" for c, s in here.items() for r in s.why_not_operational]
+        states = {s.opstate for s in here.values()}
         if OpState.initializing in states:
             opstate = OpState.initializing
         elif len(states) == 1:
@@ -321,7 +343,7 @@ class System:
         return await self._all(SHUTTING_DOWN, lambda life: life.shutdown(force=force), progress)
 
     async def _all(self, name: str, call, progress) -> SystemStatus:
-        lives = [self._lives[c] for c in self.components]
+        lives = [self._lives[c] for c in self.components if self._lives[c].present]
         done = 0
         refused: dict[str, str] = {}
 

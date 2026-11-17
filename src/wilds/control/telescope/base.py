@@ -84,6 +84,9 @@ class Telemetry(BaseModel):
     """What the TCS reports, as one snapshot (the hook :meth:`TelescopeBase._read` returns it)."""
 
     target: Target | None = None
+    zenith_distance_deg: float | None = None  # of the target, for the ADC
+    azimuth_deg: float | None = None  # of the target, from north through east
+    parallactic_angle_deg: float | None = None  # at the target, positive to the west
     rot_pa: float | None = None  # degrees E of N, the slit's sky PA now
     rot_goal: float | None = None  # where the rotator is going
     rot_frame: RotatorFrame = "Target"

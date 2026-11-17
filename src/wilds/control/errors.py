@@ -24,6 +24,7 @@ ErrorCode = Literal[
     "solve_failed",  # 409: the plate solver found no match (or has no index files)
     "slit_not_found",  # 409: no gap in the difference of the closed and open frames
     "not_calibrated",  # 409: a calibration value this needs has not been measured yet
+    "not_installed",  # 409: an optional component (the ADC) is not in the instrument
     "refused",  # the TCS or a device said no
     "timeout",
     "cancelled",

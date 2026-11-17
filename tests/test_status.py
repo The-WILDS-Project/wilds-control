@@ -17,6 +17,7 @@ def test_status_snapshot_has_the_shape_the_gui_expects():
         "guide_camera",
         "shutter",
         "slit",
+        "adc",
         "cover",
         "telescope",
         "filing",
