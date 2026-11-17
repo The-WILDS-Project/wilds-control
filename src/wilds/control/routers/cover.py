@@ -1,6 +1,6 @@
 """The instrument cover: its state, and opening and closing it (plan §3.17).
 
-Anyone may read; moving it needs the control lease (the instrument operator's, or engineering's).
+Anyone may read; moving it needs the control lease (the instrument operator's).
 The GUI reminds whoever moves it to tell the Telescope Operator first: LDT asks that the TO
 knows, and no software step enforces it. A move returns at once with ``opening`` or
 ``closing``; the status says when it has arrived.

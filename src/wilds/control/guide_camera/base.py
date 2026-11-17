@@ -147,7 +147,7 @@ class GuideCameraConf(ConfModel):
 
 
 class GuideCameraCal(ConfModel):
-    """The calibration values (``camera.cal``): the holder in engineering mode may change them.
+    """The calibration values (``camera.cal``): whoever holds control may change them.
     None until measured; a procedure that needs one calls ``camera.cal.require(...)``."""
 
     plate_scale_arcsec_px: float | None = setting(None, unit="arcsec/px", label="Plate scale", gt=0)

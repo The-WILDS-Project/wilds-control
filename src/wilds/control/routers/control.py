@@ -34,13 +34,6 @@ def require_lease(x_lease_token: Annotated[str | None, Header()] = None) -> None
         raise _http(e) from e
 
 
-def require_engineering(x_lease_token: Annotated[str | None, Header()] = None) -> None:
-    """For WILDS mechanisms and calibration: the lease must be held in engineering mode."""
-    require_lease(x_lease_token)
-    if not state.engineering:
-        raise HTTPException(403, "Engineering mode required")
-
-
 def require_to(x_to_passphrase: Annotated[str | None, Header()] = None) -> None:
     """A valid TO request also shows the TO is online (their page polls with the passphrase)."""
     if not config.check_to(x_to_passphrase):
@@ -79,16 +72,11 @@ class Heartbeat(BaseModel):
     name: str
     code: str
     holder: bool
-    engineering: bool
     requested: bool
     refused: bool = False  # the TO refused your last request; asking again clears it
     refusal_reason: str | None = None
     provenance: str
     lease_token: str | None = None  # only the holder is given it
-
-
-class Engineering(BaseModel):
-    passphrase: str
 
 
 class Refusal(BaseModel):
@@ -105,7 +93,6 @@ class SessionInfo(BaseModel):
 
 class SessionsView(BaseModel):
     holder: SessionInfo | None
-    engineering: bool
     requests: list[SessionInfo]
     viewers: list[SessionInfo]
 
@@ -154,7 +141,6 @@ def heartbeat(session_id: str, request: Request) -> Heartbeat:
         name=s.name,
         code=s.code,
         holder=holder,
-        engineering=holder and state.engineering,
         requested=s.requested_at is not None,
         refused=s.refused,
         refusal_reason=s.refusal_reason,
@@ -172,14 +158,6 @@ def request_control(me: Me) -> dict[str, str]:
     return {"code": me.code}
 
 
-@router.post("/control/engineering")
-def engineering(body: Engineering, me: Me) -> dict[str, bool]:
-    if not config.check_engineering(body.passphrase):
-        raise HTTPException(403, "Wrong engineering passphrase")
-    state.take_engineering(me)
-    return {"engineering": True}
-
-
 # -- Telescope Operator only ------------------------------------------------------------
 
 
@@ -189,7 +167,6 @@ def list_sessions() -> SessionsView:
     holder = state.holder
     return SessionsView(
         holder=_info(holder) if holder else None,
-        engineering=state.engineering,
         requests=[_info(s) for s in state.requests()],
         viewers=[_info(s) for s in state.sessions.values() if s.requested_at is None],
     )

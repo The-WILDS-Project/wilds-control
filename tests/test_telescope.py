@@ -16,10 +16,9 @@ TARGET = {"name": "HD 12345", "ra_hours": 3.5, "dec_deg": 21.25, "rot_pa": 40.0}
 
 @pytest.fixture
 def client(config_file, passphrases_file):
-    passphrases_file('[passphrases]\nto = "to-pass"\nengineering = "eng-pass"\n')
+    passphrases_file('[passphrases]\nto = "to-pass"\n')
     lease.state.sessions.clear()
     lease.state.holder_id = lease.state.token = None
-    lease.state.engineering = False
     manager.reset()
     registry.clear()
     with TestClient(create_app()) as c:
@@ -113,19 +112,10 @@ def test_offsets_are_set_cleared_and_limited(client):
     assert finished(client, j["id"])["state"] == "done"
 
 
-def test_the_lease_is_needed_and_engineering_mode_holds_it_too(client):
+def test_the_lease_is_needed_and_whoever_holds_it_may_command(client):
     assert client.post("/telescope/slew", json=TARGET).status_code == 403
-    s = client.post("/sessions", json={"name": "Eve"}).json()
-    sid = {"X-Session-Id": s["session_id"]}
-    assert (
-        client.post(
-            "/control/engineering", json={"passphrase": "eng-pass"}, headers=sid
-        ).status_code
-        == 200
-    )
-    token = client.post(f"/sessions/{s['session_id']}/heartbeat").json()["lease_token"]
-    r = client.post("/telescope/slew", json=TARGET, headers={**sid, "X-Lease-Token": token})
-    assert r.status_code == 202
+    h = hold_lease(client)
+    assert client.post("/telescope/slew", json=TARGET, headers=h).status_code == 202
     assert client.get("/status").json()["actions"]["slew"]["ok"] is True
 
 

@@ -138,10 +138,9 @@ def test_judge_says_what_looks_wrong():
 @pytest.fixture
 def app(config_file, passphrases_file):
     config_file('[solver]\nkind = "simulated"\n')
-    passphrases_file('[passphrases]\nto = "to-pass"\nengineering = "eng-pass"\n')
+    passphrases_file('[passphrases]\nto = "to-pass"\n')
     lease.state.sessions.clear()
     lease.state.holder_id = lease.state.token = None
-    lease.state.engineering = False
     manager.reset()
     registry.clear()
     yield create_app()

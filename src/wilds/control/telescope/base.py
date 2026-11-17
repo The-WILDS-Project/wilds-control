@@ -186,7 +186,7 @@ class TelescopeBase(BaseModel, abc.ABC):
 
     def why_not_available(self) -> str:
         """Why a command to the telescope cannot be sent now, or ``""`` (plan §3.12). The
-        lease itself, held normally or in engineering mode, is checked by the caller."""
+        lease itself is checked by the caller."""
         if not self._life.operational:
             return "The telescope is not operational: " + "; ".join(
                 self._life.why_not_operational() or ["not started up"]

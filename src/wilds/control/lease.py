@@ -54,7 +54,6 @@ class Session:
 class ControlState:
     sessions: dict[str, Session] = field(default_factory=dict)
     holder_id: str | None = None
-    engineering: bool = False
     token: str | None = None
     to_seen: float | None = None  # last valid request from a Telescope Operator page
     to_logged_online: bool = False
@@ -98,15 +97,13 @@ class ControlState:
     def _clear_lease(self) -> None:
         had = self.holder_id is not None
         self.holder_id = None
-        self.engineering = False
         self.token = None
         if had:
             self._holder_changed()
 
-    def _give_lease(self, s: Session, *, engineering: bool) -> None:
+    def _give_lease(self, s: Session) -> None:
         changed = self.holder_id != s.id
         self.holder_id = s.id
-        self.engineering = engineering
         self.token = secrets.token_urlsafe(24)
         s.requested_at = None
         s.refused, s.refusal_reason = False, None
@@ -187,7 +184,7 @@ class ControlState:
         prev = self.holder
         if prev is not None and prev.id != s.id:
             audit.info("handover: %s -> %s", self._label(prev), self._label(s))
-        self._give_lease(s, engineering=False)
+        self._give_lease(s)
         audit.info("control granted to %s", self._label(s))
         return s
 
@@ -203,14 +200,6 @@ class ControlState:
         if h is not None:
             audit.info("control revoked from %s", self._label(h))
         self._clear_lease()
-
-    def take_engineering(self, s: Session) -> None:
-        """Take control in engineering mode. The caller has checked the passphrase."""
-        prev = self.holder
-        if prev is not None and prev.id != s.id:
-            audit.info("handover: %s -> %s (engineering)", self._label(prev), self._label(s))
-        self._give_lease(s, engineering=True)
-        audit.info("engineering mode entered by %s", self._label(s))
 
     # -- checking -----------------------------------------------------------------------
 

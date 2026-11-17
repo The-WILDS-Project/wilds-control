@@ -18,9 +18,8 @@ def clock(monkeypatch, config_file, passphrases_file):
     c = Clock()
     lease.state.sessions.clear()
     lease.state.holder_id = lease.state.token = None
-    lease.state.engineering = False
     monkeypatch.setattr(lease.state, "clock", c)
-    passphrases_file('[passphrases]\nto = "to-pass"\nengineering = "eng-pass"\n')
+    passphrases_file('[passphrases]\nto = "to-pass"\n')
     return c
 
 
@@ -88,7 +87,7 @@ def test_to_endpoints_need_the_passphrase(client):
 def test_to_endpoints_are_closed_when_no_passphrase_is_configured(
     client, config_file, passphrases_file
 ):
-    passphrases_file('[passphrases]\nengineering = "eng-pass"\n')
+    passphrases_file("[passphrases]\n")
     assert client.get("/control/sessions", headers={"X-TO-Passphrase": ""}).status_code == 403
 
 
@@ -115,14 +114,17 @@ def test_control_is_not_released_but_granted_to_the_next_requester_or_revoked(cl
     assert client.get("/status").json()["control"]["holder"] is None
 
 
-def test_engineering_needs_the_passphrase_and_marks_status(client):
+def test_there_is_no_engineering_mode_only_control_the_tos_grant_gives(client):
     s = new_session(client)
-    r = client.post("/control/engineering", json={"passphrase": "bad"}, headers=sid(s))
-    assert r.status_code == 403
-    r = client.post("/control/engineering", json={"passphrase": "eng-pass"}, headers=sid(s))
-    assert r.status_code == 200
+    # no passphrase takes control: the endpoint is gone, and the status has no such flag
+    assert client.post(
+        "/control/engineering", json={"passphrase": "x"}, headers=sid(s)
+    ).status_code in (404, 405)
+    assert "engineering" not in client.get("/status").json()["control"]
+    client.post(f"/control/requests/{s['code']}/grant", headers=TO)
     ctl = client.get("/status").json()["control"]
-    assert ctl["holder"] == "Arie (Rehovot)" and ctl["engineering"] is True
+    assert ctl["holder"] == "Arie (Rehovot)" and "engineering" not in ctl
+    assert "engineering" not in client.post(f"/sessions/{s['session_id']}/heartbeat").json()
 
 
 def test_dead_holder_lapses_the_lease(client, clock):

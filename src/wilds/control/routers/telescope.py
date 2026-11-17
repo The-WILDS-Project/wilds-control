@@ -1,7 +1,6 @@
 """The telescope: send a target, offsets and a rotator angle, and follow them (plan §3.3, §3.12).
 
-Anyone may read. Every command needs the control lease (the TO's grant, or engineering
-mode's passphrase) and is a job that reserves the ``telescope`` component, so a
+Anyone may read. Every command needs the control lease (the TO's grant) and is a job that reserves the ``telescope`` component, so a
 second one is refused with ``409 busy`` while one runs. Nobody approves a command: the TCS acts
 on it while it accepts external commands (the telemetry says whether it does, and a command is
 refused up front while it does not) and it ends ``refused`` if the TCS does not take it up.
