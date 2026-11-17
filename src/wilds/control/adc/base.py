@@ -382,26 +382,56 @@ class AdcBase(BaseModel, abc.ABC):
         p = model.pairs_for(dispersion_arcsec, direction_deg, dmax)
         return await self._go(p.pair1_deg, p.pair2_deg, why="by hand")
 
+    async def jog(
+        self, stage: int, *, to_deg: float | None = None, by_deg: float | None = None
+    ) -> tuple[float, float]:
+        """Turn one stage, in the stage's own coordinates (what it reads, not the pair's angle, so
+        the zero points play no part), to a reading or by an amount; the other stays where it is.
+        This is how a pair is put at its reference mark. Returns what the two stages read. Refused
+        while tracking is on or the stages move; ``AdcRange`` for a bad stage or amount."""
+        if stage not in (1, 2):
+            raise AdcRange(f"the ADC has stages 1 and 2, not {stage}")
+        if (to_deg is None) == (by_deg is None):
+            raise AdcRange("give either to_deg or by_deg, not both and not neither")
+        if by_deg is not None and abs(by_deg) > 360.0:
+            raise AdcRange(f"a jog is at most 360 degrees, not {by_deg:g}")
+        self._require_installed()
+        self._life.require_operational()
+        if self.tracking:
+            raise AdcBusy("tracking is on: switch it off to jog a stage")
+        if self._moving:
+            raise AdcBusy("the ADC is moving")
+        raw = self._raw
+        if raw is None:
+            raise AdcBusy("the stages' readings are not known")
+        goal = list(raw)
+        goal[stage - 1] = (to_deg if to_deg is not None else raw[stage - 1] + by_deg) % 360.0  # type: ignore[operator]
+        await self._go_raw(goal[0], goal[1], why=f"jog stage {stage}")
+        return self._raw  # type: ignore[return-value]
+
     async def _go(self, a1: float, a2: float, *, why: str) -> tuple[float, float]:
+        await self._go_raw(*self._to_raw(a1, a2), why=why)
+        return self._to_user(self._raw)  # type: ignore[return-value]
+
+    async def _go_raw(self, r1: float, r2: float, *, why: str) -> None:
         if self._moving:
             raise AdcBusy("the ADC is moving")
         self._moving = True
-        self.activities.start(AdcActivity.Moving, details=[f"{a1:.1f}°, {a2:.1f}° ({why})"])
+        self.activities.start(AdcActivity.Moving, details=[f"{r1:.1f}°, {r2:.1f}° ({why})"])
         try:
-            await asyncio.to_thread(self._turn, a1, a2)
+            await asyncio.to_thread(self._turn, r1, r2)
         finally:
             self._moving = False
             self.activities.end(AdcActivity.Moving)
-        return self._to_user(self._raw)  # type: ignore[return-value]
 
-    def _turn(self, a1: float, a2: float) -> None:
+    def _turn(self, r1: float, r2: float) -> None:
+        """Turn the stages to these readings (blocking) and check they got there."""
         self._raw = None  # until the move has finished
-        self._move(*self._to_raw(a1, a2))
+        self._move(r1, r2)
         self._raw = self._read_angles()
-        reached = self._to_user(self._raw)
-        if reached is None or max(_off_by(reached[0], a1), _off_by(reached[1], a2)) > 0.05:
-            raise AdcBusy(f"the ADC did not reach {a1:.1f}°, {a2:.1f}°")
-        log.info("adc at %.2f°, %.2f°", *reached)
+        if self._raw is None or max(_off_by(self._raw[0], r1), _off_by(self._raw[1], r2)) > 0.05:
+            raise AdcBusy(f"the ADC did not reach {r1:.1f}°, {r2:.1f}°")
+        log.info("adc stages at %.2f°, %.2f°", *self._raw)
 
     # -- tracking -----------------------------------------------------------------------
 

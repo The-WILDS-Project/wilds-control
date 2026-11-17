@@ -1,4 +1,4 @@
-"""The ADC: where its two prism pairs are, moving them by hand, and tracking the telescope.
+"""The ADC: where its two prism pairs are, moving them by hand, jogging a stage, and tracking.
 
 Anyone may read; moving the pairs or switching tracking needs the control lease. A hand move is
 refused while tracking is on (``409 busy``, as it is while the pairs move), and a dispersion
@@ -44,6 +44,22 @@ class AdcMove(BaseModel):
         return self
 
 
+class AdcJog(BaseModel):
+    """Turn one stage, in the stage's own coordinates: to a reading, or by an amount."""
+
+    stage: int = Field(description="1 or 2")
+    to_deg: float | None = Field(None, description="the reading to go to, degrees")
+    by_deg: float | None = Field(
+        None, description="or the amount to turn by, degrees (at most 360)"
+    )
+
+    @model_validator(mode="after")
+    def _one(self) -> Self:
+        if (self.to_deg is None) == (self.by_deg is None):
+            raise ValueError("give either to_deg or by_deg, not both and not neither")
+        return self
+
+
 class Tracking(BaseModel):
     enabled: bool
 
@@ -62,6 +78,20 @@ async def move(body: AdcMove, adc: Adc) -> AdcStatus:
             await adc.move_to(body.pair1_deg, body.pair2_deg)  # type: ignore[arg-type]
         else:
             await adc.move_dispersion(body.dispersion_arcsec, body.direction_deg)  # type: ignore[arg-type]
+    except AdcRange as e:
+        raise ApiError(422, "invalid", str(e)) from e
+    except AdcBusy as e:
+        raise ApiError(409, "busy", str(e), {"component": COMPONENT}) from e
+    return adc.status()
+
+
+@router.post("/jog", response_model=AdcStatus, dependencies=[NeedsLease])
+async def jog(body: AdcJog, adc: Adc) -> AdcStatus:
+    """Turn one stage in its own coordinates (the zero points play no part), to put a pair at its
+    reference mark. ``409 not_installed``, ``409 not_operational``, ``409 busy`` while it moves
+    or tracking is on, ``422 invalid`` for a bad stage or amount."""
+    try:
+        await adc.jog(body.stage, to_deg=body.to_deg, by_deg=body.by_deg)
     except AdcRange as e:
         raise ApiError(422, "invalid", str(e)) from e
     except AdcBusy as e:

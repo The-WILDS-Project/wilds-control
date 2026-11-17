@@ -547,3 +547,85 @@ def test_the_installed_toggle_is_in_the_settings_and_the_system_carries_on_witho
         "/system/adc/startup", headers={"X-TO-Passphrase": "to-pass"}
     ).status_code in (200, 202)
     assert client.get("/status").json()["system"]["operational"] is True
+
+
+# -- jogging one stage in its own coordinates ----------------------------------------------
+
+
+async def test_a_jog_turns_one_stage_to_a_reading_or_by_an_amount_and_leaves_the_other():
+    adc = await started(start_deg=(100.0, 200.0))
+    assert await adc.jog(1, to_deg=123.4) == (123.4, 200.0)
+    assert await adc.jog(2, by_deg=-30.0) == (123.4, 170.0)
+    assert await adc.jog(2, by_deg=200.0) == (123.4, 10.0)  # taken round the circle
+    assert await adc.jog(1, to_deg=-10.0) == (350.0, 10.0)
+
+
+async def test_a_jog_is_in_the_stages_coordinates_the_zero_points_play_no_part():
+    adc = await started(start_deg=(0.0, 0.0))
+    adc.cal.patch({"zero1_deg": 10.0, "zero2_deg": -20.0}, who=ARIE)
+    await adc.jog(1, to_deg=50.0)
+    s = adc.status()
+    assert (
+        s.stage1_deg == 50.0 and s.pair1_deg == 40.0
+    )  # the stage reads 50; the pair is 40 from its reference
+    await adc.jog(2, by_deg=5.0)
+    assert adc.status().stage2_deg == 5.0 and adc._at == (50.0, 5.0)
+
+
+async def test_a_jog_shows_as_an_activity_and_the_pairs_are_unknown_meanwhile():
+    adc = await started(speed_deg_s=100.0)
+    task = asyncio.create_task(adc.jog(2, by_deg=90.0))
+    await asyncio.sleep(0.05)
+    assert adc.status().moving and adc.status().stage2_deg is None
+    assert adc.activities.names == ["Moving"]
+    with pytest.raises(AdcBusy, match="moving"):
+        await adc.jog(1, by_deg=1.0)
+    await task
+
+
+async def test_a_jog_needs_a_stage_and_an_amount_and_is_refused_while_tracking():
+    adc = await started(sky=Sky())
+    for kw in ({}, {"to_deg": 1.0, "by_deg": 1.0}, {"by_deg": 400.0}):
+        with pytest.raises(AdcRange):
+            await adc.jog(1, **kw)
+    with pytest.raises(AdcRange):
+        await adc.jog(3, by_deg=1.0)
+    await adc.start_tracking()
+    with pytest.raises(AdcBusy, match="tracking is on"):
+        await adc.jog(1, by_deg=1.0)
+    await adc.stop_tracking()
+    await adc.jog(1, by_deg=1.0)
+
+
+async def test_not_installed_a_jog_is_refused_too():
+    adc = make()
+    adc.conf.patch({"installed": False}, who=ARIE)
+    await adc.startup()
+    with pytest.raises(ApiError) as e:
+        await adc.jog(1, by_deg=1.0)
+    assert e.value.body.code == "not_installed"
+
+
+def test_jog_a_stage_over_http(client):
+    assert client.post("/adc/jog", json={"stage": 1, "by_deg": 1}).status_code == 403  # the lease
+    h = hold_lease(client)
+    r = client.post("/adc/jog", json={"stage": 1, "to_deg": 123.4}, headers=h)
+    assert (
+        r.status_code == 200 and r.json()["stage1_deg"] == 123.4 and r.json()["stage2_deg"] == 0.0
+    )
+    r = client.post("/adc/jog", json={"stage": 2, "by_deg": 0.5}, headers=h)
+    assert r.json()["stage1_deg"] == 123.4 and r.json()["stage2_deg"] == 0.5
+    for body in (
+        {"stage": 1},
+        {"stage": 1, "to_deg": 1, "by_deg": 1},
+        {"to_deg": 1},
+    ):
+        assert client.post("/adc/jog", json=body, headers=h).status_code == 422, body
+    r = client.post("/adc/jog", json={"stage": 3, "by_deg": 1}, headers=h)
+    assert r.status_code == 422 and r.json()["code"] == "invalid"
+    r = client.post("/adc/jog", json={"stage": 1, "by_deg": 720}, headers=h)
+    assert r.status_code == 422 and r.json()["code"] == "invalid"
+    client.post("/adc/tracking", json={"enabled": True}, headers=h)
+    r = client.post("/adc/jog", json={"stage": 1, "by_deg": 1}, headers=h)
+    assert r.status_code == 409 and r.json()["code"] == "busy"
+    client.post("/adc/tracking", json={"enabled": False}, headers=h)
